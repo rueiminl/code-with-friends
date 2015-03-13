@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 )
 
@@ -19,7 +20,8 @@ type Page struct {
 
 var (
 	addr        = flag.Bool("addr", false, "find open address and print to final-port.txt")
-	webpagesDir = "../webpages/"
+	gopath      = os.Getenv("GOPATH")
+	webpagesDir = gopath + "webpages/"
 	validPath   = regexp.MustCompile("^/(edit|save|view)/([a-zA-Z0-9]+)$")
 )
 
@@ -48,6 +50,7 @@ func getTitle(w http.ResponseWriter, r *http.Request) (string, error) {
 }
 
 func renderTemplate(w http.ResponseWriter, tmpl string, p *Page) {
+	fmt.Println("Rendering: " + webpagesDir + tmpl + ".html")
 	t, err := template.ParseFiles(webpagesDir + tmpl + ".html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -72,6 +75,7 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.Handl
 func viewHandler(w http.ResponseWriter, r *http.Request, title string) {
 	p, err := loadPage(title)
 	if err != nil {
+		fmt.Println("[view] cannot load page")
 		http.Redirect(w, r, "/edit/"+title, http.StatusFound)
 		return
 	}
@@ -80,6 +84,7 @@ func viewHandler(w http.ResponseWriter, r *http.Request, title string) {
 func editHandler(w http.ResponseWriter, r *http.Request, title string) {
 	p, err := loadPage(title)
 	if err != nil {
+		fmt.Println("[edit] cannot load page.")
 		p = &Page{Title: title}
 	}
 	renderTemplate(w, "edit", p)
@@ -96,6 +101,7 @@ func saveHandler(w http.ResponseWriter, r *http.Request, title string) {
 }
 
 func main() {
+	fmt.Println("web pages dir: " + webpagesDir)
 	flag.Parse()
 	http.HandleFunc("/view/", makeHandler(viewHandler))
 	http.HandleFunc("/edit/", makeHandler(editHandler))
