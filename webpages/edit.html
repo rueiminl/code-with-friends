@@ -1,6 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Code With Friends</title>
+<style type="text/css" media="screen">
+    .myeditor { 
+        height: 250px; 
+        width: 500px;
+    }
+</style>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+<script src="http://ace.ajax.org/build/src/ace.js" type="text/javascript" charset="utf-8"></script>
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap-theme.min.css">
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+</head>
+<body>
+
+<div class="row">
+    <div class="col-md-5">
+        <div class="myeditor" id="editor1">def foo(items):
+    x = "All this is syntax highlighted"
+    return x</div>
+        <form action="/code/submit" method="POST">
+            <input type="submit" value="Code"/>
+        </form>
+    </div>
+
+    <div class="col-md-5">
+        <div class="myeditor" id="editor2">def bar(items):
+    y = "This too!"
+    return y</div>
+        <form action="/code/submit" method="POST">
+            <input type="submit" value="Code"/>
+        </form>
+    </div>
+</div>
+
+<script>
+    var editors = []
+    var numEditors = 2;
+    for (i = 0; i < numEditors; i++) {
+        editors[i] = ace.edit("editor" + (i+1));
+        editors[i].setTheme("ace/theme/monokai");
+        editors[i].getSession().setMode("ace/mode/python");
+    }
+
+    $('form').submit(function() {
+        $theForm = $(this);
+        console.log($theForm);
+        var editorId = $(this).prev().attr('id');
+        var editorNumber = editorId[editorId.length - 1];
+        var editor = editors[editorNumber - 1];
+        console.log(editor.getSession().getValue());
+        // send xhr request
+        $.ajax({
+            type: $theForm.attr('method'),
+            url: $theForm.attr('action'),
+            data: {codeToExecute : editor.getSession().getValue()},
+            success: function(data) {
+                console.log('Yay! Form sent.');
+            }
+        });
+
+        // prevent submitting again
+        return false;
+    });
+</script>
+
+
 <h1>Editing {{.Title}}</h1>
 
 <form action="/save/{{.Title}}" method="POST">
-<div><textarea name="body" rows="20" cols="80">{{printf "%s" .Body}}</textarea></div>
+<div><textarea name="body" rows="10" cols="80">{{printf "%s" .Body}}</textarea></div>
 <div><input type="submit" value="Save"></div>
 </form>
+
+</body>
+</html>
+
+
+
+
+
+

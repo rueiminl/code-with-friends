@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"html/template"
@@ -10,7 +9,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
+	"syscall"
 )
 
 type Page struct {
@@ -22,7 +23,7 @@ var (
 	addr        = flag.Bool("addr", false, "find open address and print to final-port.txt")
 	gopath      = os.Getenv("GOPATH")
 	webpagesDir = gopath + "webpages/"
-	validPath   = regexp.MustCompile("^/(edit|save|view)/([a-zA-Z0-9]+)$")
+	validPath   = regexp.MustCompile("^/(code|edit|save|newsession)/([a-zA-Z0-9]*)$")
 )
 
 func (p *Page) save() error {
@@ -40,15 +41,6 @@ func loadPage(title string) (*Page, error) {
 	return &Page{Title: title, Body: body}, nil
 }
 
-func getTitle(w http.ResponseWriter, r *http.Request) (string, error) {
-	m := validPath.FindStringSubmatch(r.URL.Path)
-	if m == nil {
-		http.NotFound(w, r)
-		return "", errors.New("Invalid Page Title")
-	}
-	return m[2], nil // The title is the second subexpression.
-}
-
 func renderTemplate(w http.ResponseWriter, tmpl string, p *Page) {
 	fmt.Println("Rendering: " + webpagesDir + tmpl + ".html")
 	t, err := template.ParseFiles(webpagesDir + tmpl + ".html")
@@ -62,50 +54,65 @@ func renderTemplate(w http.ResponseWriter, tmpl string, p *Page) {
 	}
 }
 
-func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+func makeHandler(fn func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("Call from: " + r.URL.Path)
 		m := validPath.FindStringSubmatch(r.URL.Path)
 		if m == nil {
+			fmt.Println("Not found.")
 			http.NotFound(w, r)
 			return
+		} else {
+			fmt.Println(m)
 		}
-		fn(w, r, m[2])
+		fn(w, r)
 	}
 }
-func viewHandler(w http.ResponseWriter, r *http.Request, title string) {
-	p, err := loadPage(title)
-	if err != nil {
-		fmt.Println("[view] cannot load page")
-		http.Redirect(w, r, "/edit/"+title, http.StatusFound)
-		return
-	}
-	renderTemplate(w, "view", p)
-}
-func editHandler(w http.ResponseWriter, r *http.Request, title string) {
-	p, err := loadPage(title)
+func editHandler(w http.ResponseWriter, r *http.Request) {
+	p, err := loadPage("abc")
 	if err != nil {
 		fmt.Println("[edit] cannot load page.")
-		p = &Page{Title: title}
+		p = &Page{Title: "abc"}
 	}
 	renderTemplate(w, "edit", p)
 }
-func saveHandler(w http.ResponseWriter, r *http.Request, title string) {
+func saveHandler(w http.ResponseWriter, r *http.Request) {
 	body := r.FormValue("body")
-	p := &Page{Title: title, Body: []byte(body)}
+	p := &Page{Title: "abc", Body: []byte(body)}
 	err := p.save()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/view/"+title, http.StatusFound)
+	http.Redirect(w, r, "/edit/", http.StatusFound)
+}
+func codeHandler(w http.ResponseWriter, r *http.Request) {
+	codeToExecute := r.FormValue("codeToExecute")
+	fmt.Println("Code to execute: " + codeToExecute)
+	fmt.Fprintf(w, "Hey, you want me to execute this: "+codeToExecute)
+}
+func newsessionHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("NEW SESSION")
+	argv := []string{"-i"}
+	binary, err := exec.LookPath("python")
+	pid, err := syscall.ForkExec(binary, argv, nil)
+	if err != nil {
+		fmt.Println("error: ")
+		fmt.Println(err)
+	} else {
+		fmt.Println("Created a new process: ")
+		// TODO: Currently able to create a new process. However, you
+		// need to be able to pipe input/output, have 'kill' command ready.
+		fmt.Println(pid)
+	}
 }
 
 func main() {
-	fmt.Println("web pages dir: " + webpagesDir)
 	flag.Parse()
-	http.HandleFunc("/view/", makeHandler(viewHandler))
 	http.HandleFunc("/edit/", makeHandler(editHandler))
 	http.HandleFunc("/save/", makeHandler(saveHandler))
+	http.HandleFunc("/code/", makeHandler(codeHandler))
+	http.HandleFunc("/newsession/", makeHandler(newsessionHandler))
 
 	if *addr {
 		l, err := net.Listen("tcp", "127.0.0.1:0")
