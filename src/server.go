@@ -98,7 +98,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	codeToExecute := r.FormValue("codeToExecute")
 	fmt.Println("Code to execute: " + codeToExecute)
 	fmt.Fprintf(w, "Hey, you want me to execute this: "+codeToExecute)
-	codeToExecute += "\n"
+	codeToExecute += "\n\n"
 	session.lastinput = codeToExecute
 	if session.cmd != nil {
 		fmt.Println("writing to active session.")
@@ -111,15 +111,15 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("HANDLER")
 	// TODO This function will require a significant overhaul!
 	if session.lastinput != "" {
-		fmt.Fprintf(w, "IN: "+session.lastinput)
+		fmt.Fprintf(w, "INP:"+session.lastinput)
 		session.lastinput = ""
 		fmt.Println("INPUT")
 	} else if session.lastoutput != "" {
-		fmt.Fprintf(w, "OUT: "+session.lastoutput)
+		fmt.Fprintf(w, "OUT:"+session.lastoutput)
 		session.lastoutput = ""
 		fmt.Println("OUTPUT")
 	} else if session.lasterror != "" {
-		fmt.Fprintf(w, "ERR: "+session.lasterror+"\n")
+		fmt.Fprintf(w, "ERR:"+session.lasterror)
 		session.lasterror = ""
 		fmt.Println("ERROR")
 	} else {

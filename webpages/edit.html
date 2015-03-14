@@ -15,33 +15,31 @@
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
 </head>
 <body>
-    
-<div class="row">
-    <textarea class="col-md-10" id="executedCode" rows="5" readonly>
-    >>>
-    </textarea>
-</div>
 
-<div class="row">
-    <div class="col-md-5">
-        <div class="myeditor" id="editor1">def foo(items):
+
+<div style="width: 80%;">
+    <div class="form-control" id="executedCode" style="overflow-y: scroll; height:250px;"></div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="myeditor" id="editor1">def foo(items):
     x = "All this is syntax highlighted"
     return x</div>
-        <form action="/executecode/submit" method="POST">
-            <input type="submit" value="Code"/>
-        </form>
-    </div>
+            <form action="/executecode/submit" method="POST">
+                <input type="submit" value="Code"/>
+            </form>
+        </div>
 
-    <div class="col-md-5">
-        <div class="myeditor" id="editor2">def bar(items):
+        <div class="col-md-6">
+            <div class="myeditor" id="editor2">def bar(items):
     y = "This too!"
     return y</div>
-        <form action="/executecode/submit" method="POST">
-            <input type="submit" value="Code"/>
-        </form>
+            <form action="/executecode/submit" method="POST">
+                <input type="submit" value="Code"/>
+            </form>
+        </div>
     </div>
 </div>
-
 <script>
     var editors = []
     var numEditors = 2;
@@ -80,7 +78,20 @@
                 type: "POST",
                 success: function(data) {
                     console.log("got data: " + data);
-                    document.getElementById("executedCode").value += data
+                    ta = document.getElementById("executedCode");
+                    console.log(data.substr(0, 4));
+                    if (data.substr(0, 4) == "INP:") {
+                        $("#executedCode").append("<pre class='bg-info'>" + data.substr(4) + "\<\/pre><br>");
+                    } else if (data.substr(0, 4) == "OUT:") {
+                        $("#executedCode").append("<pre class='bg-success'>" + data.substr(4) + "\<\/pre><br>");
+                    } else if (data.substr(0, 4) == "ERR:") {
+                        $("#executedCode").append("<pre class='bg-danger'>" + data.substr(4) + "\<\/pre><br>");
+                    }
+
+                    
+                    $("#executedCode").animate({
+                        scrollTop:$("#executedCode")[0].scrollHeight - $("#executedCode").height()
+                    })
                 },
                 complete: pollForExecutedCode,
                 timeout: 2000
@@ -90,13 +101,6 @@
 
 </script>
 
-
-<h1>Editing {{.Title}}</h1>
-
-<form action="/save/{{.Title}}" method="POST">
-<div><textarea name="body" rows="10" cols="80">{{printf "%s" .Body}}</textarea></div>
-<div><input type="submit" value="Save"></div>
-</form>
 
 </body>
 </html>
