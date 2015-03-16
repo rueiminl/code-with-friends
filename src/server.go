@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 )
 
 type Page struct {
@@ -20,20 +21,19 @@ type Page struct {
 }
 
 type PythonSession struct {
-	inPipe     io.WriteCloser
-	outPipe    io.ReadCloser
-	errPipe    io.ReadCloser
-	cmd        *exec.Cmd
-	lastinput  string
-	lastoutput string // TODO Figure out a better way to store this info
-	lasterror  string
+	inPipe   io.WriteCloser
+	outPipe  io.ReadCloser
+	errPipe  io.ReadCloser
+	cmd      *exec.Cmd
+	ioNumber int            // Current index into ioMap. Starts at zero.
+	ioMap    map[int]string // Map of all input/output/errors
 }
 
 var (
 	addr        = flag.Bool("addr", false, "find open address and print to final-port.txt")
 	gopath      = os.Getenv("GOPATH")
 	webpagesDir = gopath + "webpages/"
-	validPath   = regexp.MustCompile("^/(readexecutedcode|executecode|edit|save|newsession)/([a-zA-Z0-9]*)$")
+	validPath   = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|save|newsession)/([a-zA-Z0-9]*)$")
 	session     = new(PythonSession) // TODO Add ability to construct multiple distinct sessions.
 )
 
@@ -52,14 +52,13 @@ func loadPage(title string) (*Page, error) {
 	return &Page{Title: title, Body: body}, nil
 }
 
-func renderTemplate(w http.ResponseWriter, tmpl string, p *Page) {
-	fmt.Println("Rendering: " + webpagesDir + tmpl + ".html")
+func renderTemplate(w http.ResponseWriter, tmpl string) {
 	t, err := template.ParseFiles(webpagesDir + tmpl + ".html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	err = t.Execute(w, p)
+	err = t.Execute(w, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -67,8 +66,9 @@ func renderTemplate(w http.ResponseWriter, tmpl string, p *Page) {
 
 func makeHandler(fn func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("Request incoming for: " + r.URL.Path)
 		m := validPath.FindStringSubmatch(r.URL.Path)
-		if m == nil {
+		if m == nil && r.URL.Path != "/" {
 			fmt.Println("Not found.")
 			http.NotFound(w, r)
 			return
@@ -76,13 +76,11 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 		fn(w, r)
 	}
 }
+func homeHandler(w http.ResponseWriter, r *http.Request) {
+	renderTemplate(w, "edit")
+}
 func editHandler(w http.ResponseWriter, r *http.Request) {
-	p, err := loadPage("abc")
-	if err != nil {
-		fmt.Println("[edit] cannot load page.")
-		p = &Page{Title: "abc"}
-	}
-	renderTemplate(w, "edit", p)
+	renderTemplate(w, "edit")
 }
 func saveHandler(w http.ResponseWriter, r *http.Request) {
 	body := r.FormValue("body")
@@ -98,39 +96,53 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	codeToExecute := r.FormValue("codeToExecute")
 	fmt.Println("Code to execute: " + codeToExecute)
 	fmt.Fprintf(w, "Hey, you want me to execute this: "+codeToExecute)
-	codeToExecute += "\n\n"
-	session.lastinput = codeToExecute
 	if session.cmd != nil {
 		fmt.Println("writing to active session.")
-		writeToSession(codeToExecute, session)
+		codeToExecute += "\n\n"
+		writeToSession(codeToExecute, session)                   // TODO make async
+		session.ioMap[session.ioNumber] = "INP:" + codeToExecute // TODO move to session master.
+		session.ioNumber++
 	} else {
 		fmt.Println("No session active.")
 	}
 }
 func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("HANDLER")
 	// TODO This function will require a significant overhaul!
-	if session.lastinput != "" {
-		fmt.Fprintf(w, "INP:"+session.lastinput)
-		session.lastinput = ""
-		fmt.Println("INPUT")
-	} else if session.lastoutput != "" {
-		fmt.Fprintf(w, "OUT:"+session.lastoutput)
-		session.lastoutput = ""
-		fmt.Println("OUTPUT")
-	} else if session.lasterror != "" {
-		fmt.Fprintf(w, "ERR:"+session.lasterror)
-		session.lasterror = ""
-		fmt.Println("ERROR")
-	} else {
+	urlPrefixLen := len("/readexecutedcode/")
+	requestedIoNumber, err := strconv.Atoi(r.URL.Path[urlPrefixLen:])
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(requestedIoNumber)
+	//ioNumber   int            // Current index into ioMap. Starts at zero.
+	//ioMap      map[int]string // Map of all input/output/errors
+	fmt.Println(session.ioNumber)
+	if session.ioNumber > requestedIoNumber { // Client is catching up...
+		fmt.Println("Result: " + session.ioMap[requestedIoNumber])
+		fmt.Fprintf(w, session.ioMap[requestedIoNumber])
+	} else if session.ioNumber < requestedIoNumber { // Client is ahead?
+		fmt.Println("Client is ahead?")
+		fmt.Fprintf(w, "ZERO")
+	} else { // Client should wait.
 		fmt.Fprintf(w, "")
-		fmt.Println("NOTHING TO REPORT...")
+	}
+}
+func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
+	if session.cmd != nil {
+		fmt.Fprintf(w, "ACTIVE")
+	} else {
+		fmt.Fprintf(w, "DEAD")
 	}
 }
 
 func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("NEW SESSION")
 	//argv := []string{"-i"}
+	if session.cmd != nil {
+		session.cmd.Process.Kill()
+		fmt.Println("Tried to kill old session.")
+	}
 	argv := "-i"
 	binary, err := exec.LookPath("python")
 	session.cmd = exec.Command(binary, argv)
@@ -139,6 +151,8 @@ func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Println(err)
 		return
 	}
+	session.ioNumber = 0
+	session.ioMap = make(map[int]string)
 	fmt.Println("Created a new process: ")
 	// TODO: Currently able to create a new process. However, you
 	// need to be able to pipe input/output, have 'kill' command ready.
@@ -164,18 +178,16 @@ func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println("About to do print hello world command")
-	writeToSession("print 'hello world'\n", session)
-	fmt.Println("about to wait...")
-	go session.cmd.Wait()
-	/*
-		if err != nil {
-			fmt.Println("Wait error.")
-			fmt.Println(err)
-		} else {
-			fmt.Println("Waited successfully. Session dead.")
-		}
-	*/
+	//fmt.Println("About to do print hello world command")
+	//writeToSession("print 'hello world'\n", session)
+	//fmt.Println("about to wait...")
+	go waitForSessionDeath()
+}
+
+func waitForSessionDeath() {
+	//err :=
+	session.cmd.Wait()
+	// TODO identify session as nil. Need ONE goroutine modifying session. Aka a "master" goroutine.
 }
 
 func handlePythonSingleOutput(outPipe io.ReadCloser, outChannel chan<- string) {
@@ -205,18 +217,22 @@ func handleSessionOutput(s *PythonSession) {
 	for {
 		select {
 		case out, ok := <-outChannel:
-			fmt.Println("(outChan): " + out)
-			s.lastoutput = out
 			if !ok {
 				fmt.Println("Closing output channel")
 				outChannel = nil
+			} else {
+				fmt.Println("(outChan): " + out)
+				s.ioMap[s.ioNumber] = "OUT:" + out // TODO move to session master.
+				s.ioNumber++
 			}
 		case err, ok := <-errChannel:
-			fmt.Println("(errChan): " + err)
-			s.lasterror = err
 			if !ok {
 				fmt.Println("Closing err channel")
 				errChannel = nil
+			} else {
+				fmt.Println("(errChan): " + err)
+				s.ioMap[s.ioNumber] = "ERR:" + err // TODO move to session master.
+				s.ioNumber++
 			}
 		}
 
@@ -239,10 +255,12 @@ func writeToSession(inputString string, s *PythonSession) {
 
 func main() {
 	flag.Parse()
+	http.HandleFunc("/", makeHandler(homeHandler))
 	http.HandleFunc("/edit/", makeHandler(editHandler))
 	http.HandleFunc("/save/", makeHandler(saveHandler))
 	http.HandleFunc("/executecode/", makeHandler(executecodeHandler))
 	http.HandleFunc("/readexecutedcode/", makeHandler(readexecutedcodeHandler))
+	http.HandleFunc("/readsessionactive/", makeHandler(readsessionactiveHandler))
 	http.HandleFunc("/newsession/", makeHandler(newsessionHandler))
 
 	if *addr {

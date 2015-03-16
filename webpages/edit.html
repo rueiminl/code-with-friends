@@ -4,8 +4,28 @@
 <title>Code With Friends</title>
 <style type="text/css" media="screen">
     .myeditor { 
-        height: 250px; 
-        width: 500px;
+        min-height: 250px; 
+        min-width: 450px;
+        max-width: 100%;
+        max-height: 100%;
+    }
+
+    #executedCode {
+        overflow: auto;
+        height:250px;
+    }
+
+    #infobox {
+        height: 250px;
+        border: 2px solid blue;
+    }
+
+    #inputcodebox {
+        border: 2px solid green;
+    }
+
+    #formnewsession {
+        text-align: center;
     }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
@@ -16,27 +36,41 @@
 </head>
 <body>
 
-
-<div style="width: 80%;">
-    <div class="form-control" id="executedCode" style="overflow-y: scroll; height:250px;"></div>
-
+<div style="width: 95%;" class="container-fluid">
     <div class="row">
-        <div class="col-md-6">
+        <h1 class="col-md-12"> Code With Friends </h1>
+    </div>
+    <div id="infobox" class="row">
+        <div class="col-md-10" id="executedCode">
+            <pre class="bg-primary">Welcome to Code With Friends!</pre>
+        </div>
+        <div class="col-md-2" style="border: 2px solid red;">
+            <form id="formnewsession" action="/newsession" method="POST"> 
+                <input id="newsessionbutton" type="submit" class="btn btn-primary" value="Create new session" disabled />
+            </form>
+        </div>
+    </div>
+
+    <div id="inputcodebox" class="row">
+        <div class="col-md-5">
             <div class="myeditor" id="editor1">def foo(items):
     x = "All this is syntax highlighted"
     return x</div>
-            <form action="/executecode/submit" method="POST">
-                <input type="submit" value="Code"/>
+            <form id="formsubmitcode" action="/executecode/submit" method="POST">
+                <input id="mycodebutton" type="submit" class="btn btn-default" value="Code" disabled />
             </form>
         </div>
 
-        <div class="col-md-6">
+        <div class="col-md-5">
             <div class="myeditor" id="editor2">def bar(items):
     y = "This too!"
     return y</div>
             <form action="/executecode/submit" method="POST">
-                <input type="submit" value="Code"/>
+                <input type="submit" class="btn btn-default" value="Code" disabled />
             </form>
+        </div>
+        <div class="col-md-2" style="border: 2px solid red;">
+            <p> Swap Code Box Here </p>
         </div>
     </div>
 </div>
@@ -46,12 +80,28 @@
     for (i = 0; i < numEditors; i++) {
         editors[i] = ace.edit("editor" + (i+1));
         editors[i].setTheme("ace/theme/monokai");
+        editors[i].setFontSize(12);
         editors[i].getSession().setMode("ace/mode/python");
     }
 
-    $('form').submit(function() {
+    // React to creating new session.
+    $('#formnewsession').submit(function() {
         $theForm = $(this);
-        console.log($theForm);
+        document.getElementById("newsessionbutton").disabled = true;
+        $.ajax({
+            type: $theForm.attr('method'),
+            url: $theForm.attr('action'),
+            data: {}, // TODO Fill this with unique session ID maybe?
+            success: function(data) {
+                console.log('Yay! New session.');
+            }
+        });
+        return false;
+    });
+
+    // React to submitting new code.
+    $('#formsubmitcode').submit(function() {
+        $theForm = $(this);
         var editorId = $(this).prev().attr('id');
         var editorNumber = editorId[editorId.length - 1];
         var editor = editors[editorNumber - 1];
@@ -65,38 +115,83 @@
                 console.log('Yay! Form sent.');
             }
         });
-
-        // prevent submitting again
         return false;
     });
 
+    var pollForActiveSessionDelay = 1000;
+    (function pollForActiveSession() {
+        setTimeout(function() {
+            $.ajax({
+                url: "/readsessionactive/",
+                type: "GET",
+                success: function(data) {
+                    console.log("got data: " + data);
+                    mycodebutton = document.getElementById("mycodebutton");
+                    newsessionbutton = document.getElementById("newsessionbutton");
+                    if (data == "ACTIVE") {
+                        $("#newsessionbutton").removeClass("btn-primary");
+                        $("#newsessionbutton").addClass("btn-danger");
+                        newsessionbutton.value = "Restart session";
+                        newsessionbutton.disabled = false;
+                        mycodebutton.disabled = false;
+                        pollForActiveSessionDelay = 5000;
+                    } else if (data == "DEAD") {
+                        $("#newsessionbutton").removeClass("btn-danger");
+                        $("#newsessionbutton").addClass("btn-primary");
+                        newsessionbutton.value = "Create new session";
+                        newsessionbutton.disabled = false;
+                        mycodebutton.disabled = true;
+                    }
+                },
+                complete: pollForActiveSession,
+                timeout: 1000
+            })
+        }, pollForActiveSessionDelay);
 
+    })();
+
+    var seqNum = 0;
+    var pollForExecutedCodeDelay = 1000;
+    var messageReceived = true;
     (function pollForExecutedCode() {
         setTimeout(function() {
             $.ajax({
-                url: "/readexecutedcode/",
-                type: "POST",
+                url: "/readexecutedcode/" + seqNum,
+                type: "GET",
                 success: function(data) {
-                    console.log("got data: " + data);
+                    console.log("For seqNum: " + seqNum + ", got data: " + data);
                     ta = document.getElementById("executedCode");
                     console.log(data.substr(0, 4));
+                    messageReceived = true;
                     if (data.substr(0, 4) == "INP:") {
+                        seqNum += 1;
                         $("#executedCode").append("<pre class='bg-info'>" + data.substr(4) + "\<\/pre><br>");
                     } else if (data.substr(0, 4) == "OUT:") {
+                        seqNum += 1;
                         $("#executedCode").append("<pre class='bg-success'>" + data.substr(4) + "\<\/pre><br>");
                     } else if (data.substr(0, 4) == "ERR:") {
+                        seqNum += 1;
                         $("#executedCode").append("<pre class='bg-danger'>" + data.substr(4) + "\<\/pre><br>");
+                    } else if (data.substr(0, 4) == "ZERO") {
+                        seqNum = 0;
+                        $("#executedCode").append("<pre class='bg-warning'> Session Restarting. \<\/pre><br>");
+                    } else {
+                        messageReceived = false;
+                        console.log("Throttling polling for executed code");
+                        pollForExecutedCodeDelay = 5000;
                     }
-
                     
-                    $("#executedCode").animate({
-                        scrollTop:$("#executedCode")[0].scrollHeight - $("#executedCode").height()
-                    })
+                    if (messageReceived) {
+                        $("#executedCode").animate({
+                            scrollTop:$("#executedCode")[0].scrollHeight - $("#executedCode").height()
+                        })
+                        pollForExecutedCodeDelay = 1000;
+                    }
                 },
                 complete: pollForExecutedCode,
-                timeout: 2000
+                timeout: 1000
             })
-        }, 5000);
+        }, pollForExecutedCodeDelay);
     })();
 
 </script>
