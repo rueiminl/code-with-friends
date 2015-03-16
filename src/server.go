@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 type Page struct {
@@ -98,7 +99,10 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Hey, you want me to execute this: "+codeToExecute)
 	if session.cmd != nil {
 		fmt.Println("writing to active session.")
-		codeToExecute += "\n\n"
+		codeToExecute += "\n" // Required to terimnate command.
+		if strings.Count(codeToExecute, "\n") > 0 {
+			codeToExecute += "\n" // Double termination (possibly) required for multiline commands.
+		}
 		writeToSession(codeToExecute, session)                   // TODO make async
 		session.ioMap[session.ioNumber] = "INP:" + codeToExecute // TODO move to session master.
 		session.ioNumber++

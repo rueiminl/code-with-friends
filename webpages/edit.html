@@ -165,16 +165,16 @@
                     messageReceived = true;
                     if (data.substr(0, 4) == "INP:") {
                         seqNum += 1;
-                        $("#executedCode").append("<pre class='bg-info'>" + data.substr(4) + "\<\/pre><br>");
+                        $("#executedCode").append("<pre class='bg-info'>" + data.substr(4) + "\<\/pre>");
                     } else if (data.substr(0, 4) == "OUT:") {
                         seqNum += 1;
-                        $("#executedCode").append("<pre class='bg-success'>" + data.substr(4) + "\<\/pre><br>");
+                        $("#executedCode").append("<pre class='bg-success'>" + data.substr(4) + "\<\/pre>");
                     } else if (data.substr(0, 4) == "ERR:") {
                         seqNum += 1;
-                        $("#executedCode").append("<pre class='bg-danger'>" + data.substr(4) + "\<\/pre><br>");
+                        $("#executedCode").append("<pre class='bg-danger'>" + data.substr(4) + "\<\/pre>");
                     } else if (data.substr(0, 4) == "ZERO") {
                         seqNum = 0;
-                        $("#executedCode").append("<pre class='bg-warning'> Session Restarting. \<\/pre><br>");
+                        $("#executedCode").append("<pre class='bg-warning'> Session Restarting. \<\/pre>");
                     } else {
                         messageReceived = false;
                         console.log("Throttling polling for executed code");
