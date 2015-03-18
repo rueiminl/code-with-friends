@@ -134,7 +134,7 @@
                         newsessionbutton.value = "Restart session";
                         newsessionbutton.disabled = false;
                         mycodebutton.disabled = false;
-                        pollForActiveSessionDelay = 5000;
+                        pollForActiveSessionDelay = 2500;
                     } else if (data == "DEAD") {
                         $("#newsessionbutton").removeClass("btn-danger");
                         $("#newsessionbutton").addClass("btn-primary");
@@ -178,7 +178,7 @@
                     } else {
                         messageReceived = false;
                         console.log("Throttling polling for executed code");
-                        pollForExecutedCodeDelay = 5000;
+                        pollForExecutedCodeDelay = 2500;
                     }
                     
                     if (messageReceived) {

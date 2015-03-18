@@ -16,43 +16,59 @@ import (
 	"strings"
 )
 
-type Page struct {
-	Title string
-	Body  []byte
+/*
+Message returned from master, detailing information about a requested ioNumber.
+The response will only include a valid requestedIo string if the currentIoNumber
+is greater than the requested io number.
+*/
+type ioNumberResponse struct {
+	currentIoNumber int
+	requestedIo     string
 }
 
+/*
+The message sent to the master from the goroutines handling STDOUT and STDERR.
+They detail the origin of the output, and the output itself, so the master can save
+it to a log (or send it to replicas).
+*/
+type ioMapWriteRequest struct {
+	stdout bool   // True if stdout, else stdout.
+	output string // Output from running process
+}
+
+/*
+Details the information contained in a single python session, shared by a small group
+of users. Also contains all necessary channels for interacting with the master of
+the session.
+*/
 type PythonSession struct {
-	inPipe   io.WriteCloser
-	outPipe  io.ReadCloser
-	errPipe  io.ReadCloser
-	cmd      *exec.Cmd
-	ioNumber int            // Current index into ioMap. Starts at zero.
-	ioMap    map[int]string // Map of all input/output/errors
+	inPipe              io.WriteCloser
+	outPipe             io.ReadCloser
+	errPipe             io.ReadCloser
+	cmd                 *exec.Cmd
+	ioNumber            int                     // Current index into ioMap. Starts at zero.
+	ioMap               map[int]string          // Map of all input/output/errors
+	chMasterReady       chan bool               // OUTPUT : Written to by master when ready to execute.
+	chExecuteCode       chan string             // INPUT : Channel of "please execute this code"
+	chRequestIoNumber   chan int                // INPUT : A goroutine is requesting the value of a particular io number.
+	chResponseIoNumber  chan *ioNumberResponse  // OUTPUT : Response from master regarding requested io number.
+	chIoMapWriteRequest chan *ioMapWriteRequest // INPUT : Request to write to ioMap.
 }
 
+/*
+Collection of global variables used by server.
+*/
 var (
 	addr        = flag.Bool("addr", false, "find open address and print to final-port.txt")
 	gopath      = os.Getenv("GOPATH")
 	webpagesDir = gopath + "webpages/"
-	validPath   = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|save|newsession)/([a-zA-Z0-9]*)$")
+	validPath   = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|newsession)/([a-zA-Z0-9]*)$")
 	session     = new(PythonSession) // TODO Add ability to construct multiple distinct sessions.
 )
 
-func (p *Page) save() error {
-	filename := p.Title + ".txt"
-	return ioutil.WriteFile(webpagesDir+filename, p.Body, 0600)
-}
-
-func loadPage(title string) (*Page, error) {
-	fmt.Println("Load page: " + title)
-	filename := title + ".txt"
-	body, err := ioutil.ReadFile(webpagesDir + filename)
-	if err != nil {
-		return nil, err
-	}
-	return &Page{Title: title, Body: body}, nil
-}
-
+/*
+Function which renders the HTML page requested.
+*/
 func renderTemplate(w http.ResponseWriter, tmpl string) {
 	t, err := template.ParseFiles(webpagesDir + tmpl + ".html")
 	if err != nil {
@@ -62,6 +78,69 @@ func renderTemplate(w http.ResponseWriter, tmpl string) {
 	err = t.Execute(w, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+/*
+ * The session master is responsible for handling all requests relating
+ * to a particular session. This avoids race conditions -- to update the
+ * session, a request is made to the master, which serializes all operations
+ * on the request rather than locking.
+ *
+ * The master identifies that it is ready to operate on a new request by
+ * waiting on the channel "chMasterReady". This channel will be closed
+ * when the master is no longer operational. Thus, from the perspective of
+ * a goroutine interacting with the master, a handshake would look like the
+ * following:
+ *
+ * MASTER : chMasterReady <- true
+ * HELPER : _, ok := <- chMasterReady
+ *   The helper can check if the master is still running here.
+ *   If the master has not closed 'chMasterReady', the helper can assume
+ *   the master is still serving requests.
+ * HELPER : chMasterUpdateChannel <- request
+ * MASTER : request, ok := <- chMasterUpdateChannel
+ *   Master can serially modify state here.
+ *
+ */
+func sessionMaster(s *PythonSession) {
+	for {
+		s.chMasterReady <- true // Only return true when s.cmd != nil.
+		select {
+		case inp, ok := <-s.chExecuteCode:
+			if !ok {
+				fmt.Println("Closed chExecuteCode.")
+			} else {
+				// TODO: Can this be done asynchronously?
+				// Right now, Master will be blocked on code which takes a while to execute.
+				writeToSession(inp, s)
+				s.ioMap[s.ioNumber] = "INP:" + inp
+				s.ioNumber++
+			}
+		case request, ok := <-s.chRequestIoNumber:
+			if !ok {
+				fmt.Println("Closed chRequestIoNumber")
+			} else {
+				ioInfo := new(ioNumberResponse)
+				ioInfo.currentIoNumber = s.ioNumber
+				if ioInfo.currentIoNumber > request {
+					ioInfo.requestedIo = s.ioMap[request]
+				}
+				s.chResponseIoNumber <- ioInfo
+			}
+		case request, ok := <-s.chIoMapWriteRequest:
+			if !ok {
+				fmt.Println("Closed chIoMapWriteRequest")
+			} else {
+				if request.stdout {
+					s.ioMap[s.ioNumber] = "OUT:" + request.output
+				} else { // stderr
+					s.ioMap[s.ioNumber] = "ERR:" + request.output
+
+				}
+				s.ioNumber++
+			}
+		}
 	}
 }
 
@@ -83,56 +162,56 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 func editHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "edit")
 }
-func saveHandler(w http.ResponseWriter, r *http.Request) {
-	body := r.FormValue("body")
-	p := &Page{Title: "abc", Body: []byte(body)}
-	err := p.save()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/edit/", http.StatusFound)
-}
 func executecodeHandler(w http.ResponseWriter, r *http.Request) {
+	// Parse necessary code to be excuted...
 	codeToExecute := r.FormValue("codeToExecute")
-	fmt.Println("Code to execute: " + codeToExecute)
 	fmt.Fprintf(w, "Hey, you want me to execute this: "+codeToExecute)
-	if session.cmd != nil {
+	codeToExecute += "\n" // Required to terminate command.
+	if strings.Count(codeToExecute, "\n") > 0 {
+		codeToExecute += "\n" // Double termination (possibly) required for multiline commands.
+	}
+
+	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
+
+	// ... and send that code to the master to be written to the session.
+	_, ok := <-session.chMasterReady
+	if ok {
 		fmt.Println("writing to active session.")
-		codeToExecute += "\n" // Required to terimnate command.
-		if strings.Count(codeToExecute, "\n") > 0 {
-			codeToExecute += "\n" // Double termination (possibly) required for multiline commands.
-		}
-		writeToSession(codeToExecute, session)                   // TODO make async
-		session.ioMap[session.ioNumber] = "INP:" + codeToExecute // TODO move to session master.
-		session.ioNumber++
+		session.chExecuteCode <- codeToExecute // Must request that master handle session.
 	} else {
 		fmt.Println("No session active.")
 	}
 }
 func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO This function will require a significant overhaul!
 	urlPrefixLen := len("/readexecutedcode/")
 	requestedIoNumber, err := strconv.Atoi(r.URL.Path[urlPrefixLen:])
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(requestedIoNumber)
-	//ioNumber   int            // Current index into ioMap. Starts at zero.
-	//ioMap      map[int]string // Map of all input/output/errors
-	fmt.Println(session.ioNumber)
-	if session.ioNumber > requestedIoNumber { // Client is catching up...
-		fmt.Println("Result: " + session.ioMap[requestedIoNumber])
-		fmt.Fprintf(w, session.ioMap[requestedIoNumber])
-	} else if session.ioNumber < requestedIoNumber { // Client is ahead?
-		fmt.Println("Client is ahead?")
-		fmt.Fprintf(w, "ZERO")
-	} else { // Client should wait.
-		fmt.Fprintf(w, "")
+
+	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
+
+	_, ok := <-session.chMasterReady
+	if ok {
+		session.chRequestIoNumber <- requestedIoNumber
+		ioInfo := <-session.chResponseIoNumber
+
+		if ioInfo.currentIoNumber > requestedIoNumber { // Client is catching up...
+			fmt.Println("Result: " + ioInfo.requestedIo)
+			fmt.Fprintf(w, ioInfo.requestedIo)
+		} else if ioInfo.currentIoNumber < requestedIoNumber { // Client is ahead?
+			fmt.Println("Client is ahead?")
+			fmt.Fprintf(w, "ZERO")
+		} else { // Client should wait.
+			fmt.Fprintf(w, "")
+		}
+
 	}
+
 }
 func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
 	if session.cmd != nil {
 		fmt.Fprintf(w, "ACTIVE")
 	} else {
@@ -157,9 +236,13 @@ func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	session.ioNumber = 0
 	session.ioMap = make(map[int]string)
+	session.chMasterReady = make(chan bool)
+	session.chExecuteCode = make(chan string)
+	session.chRequestIoNumber = make(chan int)
+	session.chResponseIoNumber = make(chan *ioNumberResponse)
+	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
+
 	fmt.Println("Created a new process: ")
-	// TODO: Currently able to create a new process. However, you
-	// need to be able to pipe input/output, have 'kill' command ready.
 	session.inPipe, err = session.cmd.StdinPipe()
 	if err != nil {
 		fmt.Println("Cannot make stdin pipe")
@@ -175,7 +258,7 @@ func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Cannot make stderr pipe")
 		return
 	}
-	go handleSessionOutput(session)
+	go handleSessionOutput(session) // Start listening to STDOUT/STDERR.
 	err = session.cmd.Start()
 	if err != nil {
 		fmt.Println("Start cannot run")
@@ -185,67 +268,52 @@ func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 	//fmt.Println("About to do print hello world command")
 	//writeToSession("print 'hello world'\n", session)
 	//fmt.Println("about to wait...")
-	go waitForSessionDeath()
+	go waitForSessionDeath(session)
+	go sessionMaster(session)
 }
 
-func waitForSessionDeath() {
-	//err :=
-	session.cmd.Wait()
-	// TODO identify session as nil. Need ONE goroutine modifying session. Aka a "master" goroutine.
-}
-
-func handlePythonSingleOutput(outPipe io.ReadCloser, outChannel chan<- string) {
-	output := make([]byte, 1000)
-	for {
-		n, err := outPipe.Read(output)
-		if err != nil {
-			fmt.Println("(out/err) ERROR")
-			fmt.Println(err)
-			close(outChannel)
-			return
-		} else {
-			fmt.Println("(out/err) saw: " + string(output[:n]))
-			outChannel <- string(output[:n])
-		}
-	}
+func waitForSessionDeath(s *PythonSession) {
+	s.cmd.Wait()
+	// TODO Possibly handle closing channels? We don't want any stuck goroutines.
 }
 
 func handleSessionOutput(s *PythonSession) {
 	outPipe := s.outPipe
 	errPipe := s.errPipe
-	outChannel := make(chan string, 1)
-	errChannel := make(chan string, 1)
-	go handlePythonSingleOutput(outPipe, outChannel)
-	go handlePythonSingleOutput(errPipe, errChannel)
+	go handlePythonSingleOutput(outPipe, s, true)
+	go handlePythonSingleOutput(errPipe, s, false)
+}
 
+/*
+Function which continuously reads input from STDOUT/STDERR and propagates
+this information to the master.
+*/
+func handlePythonSingleOutput(outPipe io.ReadCloser, s *PythonSession, stdout bool) {
+	output := make([]byte, 1000) // TODO Maybe change this from 1000 to something bigger?
 	for {
-		select {
-		case out, ok := <-outChannel:
-			if !ok {
-				fmt.Println("Closing output channel")
-				outChannel = nil
-			} else {
-				fmt.Println("(outChan): " + out)
-				s.ioMap[s.ioNumber] = "OUT:" + out // TODO move to session master.
-				s.ioNumber++
-			}
-		case err, ok := <-errChannel:
-			if !ok {
-				fmt.Println("Closing err channel")
-				errChannel = nil
-			} else {
-				fmt.Println("(errChan): " + err)
-				s.ioMap[s.ioNumber] = "ERR:" + err // TODO move to session master.
-				s.ioNumber++
-			}
-		}
-
-		if outChannel == nil && errChannel == nil {
+		n, err := outPipe.Read(output)
+		if err != nil {
+			fmt.Println("(out/err) ERROR")
+			fmt.Println(err)
+			// TODO Is there any other work which needs to be done to shut down the session?
 			return
+		} else {
+			fmt.Println("(out/err) saw: " + string(output[:n]))
+			_, ok := <-s.chMasterReady // Master is ready for our output!
+			if ok {
+				request := new(ioMapWriteRequest)
+				request.stdout = stdout
+				request.output = string(output[:n])
+				s.chIoMapWriteRequest <- request
+			}
 		}
 	}
 }
 
+/*
+Low-level function used by master to communicate with active python session.
+All executed code is sent through here.
+*/
 func writeToSession(inputString string, s *PythonSession) {
 	inPipe := s.inPipe
 	input := []byte(inputString)
@@ -261,7 +329,6 @@ func main() {
 	flag.Parse()
 	http.HandleFunc("/", makeHandler(homeHandler))
 	http.HandleFunc("/edit/", makeHandler(editHandler))
-	http.HandleFunc("/save/", makeHandler(saveHandler))
 	http.HandleFunc("/executecode/", makeHandler(executecodeHandler))
 	http.HandleFunc("/readexecutedcode/", makeHandler(readexecutedcodeHandler))
 	http.HandleFunc("/readsessionactive/", makeHandler(readsessionactiveHandler))
