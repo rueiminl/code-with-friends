@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"bufio"
+	"encoding/json"
 )
 
 /*
@@ -36,6 +38,7 @@ type ioMapWriteRequest struct {
 	output string // Output from running process
 }
 
+
 /*
 Details the information contained in a single python session, shared by a small group
 of users. Also contains all necessary channels for interacting with the master of
@@ -55,15 +58,29 @@ type PythonSession struct {
 	chIoMapWriteRequest chan *ioMapWriteRequest // INPUT : Request to write to ioMap.
 }
 
+type Configuration struct {
+	Servers []struct {
+		Name string `json:"name"`
+		IP string `json:"ip"`
+		Port string `json:"port"`
+	} `json:"servers"`
+	Groups []struct {
+		Name string `json:"name"`
+		Members []string `json:"members"`
+	} `json:"groups"`
+}
+
 /*
 Collection of global variables used by server.
 */
 var (
-	addr        = flag.Bool("addr", false, "find open address and print to final-port.txt")
-	gopath      = os.Getenv("GOPATH")
-	webpagesDir = gopath + "webpages/"
-	validPath   = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|newsession)/([a-zA-Z0-9]*)$")
-	session     = new(PythonSession) // TODO Add ability to construct multiple distinct sessions.
+	addr          = flag.Bool("addr", false, "find open address and print to final-port.txt")
+	gopath        = os.Getenv("GOPATH")
+	webpagesDir   = gopath + "webpages/"
+	validPath     = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|newsession)/([a-zA-Z0-9]*)$")
+	session       = new(PythonSession) // TODO Add ability to construct multiple distinct sessions.
+	configuration = new(Configuration)
+	serverName    = ""
 )
 
 /*
@@ -221,7 +238,7 @@ func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
 
 func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("NEW SESSION")
-	//argv := []string{"-i"}
+	// argv := []string{"-i"}
 	if session.cmd != nil {
 		session.cmd.Process.Kill()
 		fmt.Println("Tried to kill old session.")
@@ -325,7 +342,49 @@ func writeToSession(inputString string, s *PythonSession) {
 	}
 }
 
+func setName(name string) {
+	serverName = name
+	fmt.Println("setName: " + name)
+}
+
+func getName() {
+	fmt.Println("getName: " + serverName)
+}
+
+func getGroups() {
+	fmt.Println("getGroups: ")
+	for _, group := range configuration.Groups {
+		for _, member := range group.Members {
+			if member == serverName {
+				fmt.Println("\t" + group.Name)
+			}
+		}
+	}
+}
+
+// debug only
+func showConfiguration() {
+	for i, server := range configuration.Servers {
+		fmt.Printf("server[%d] = %s (%s:%s)\n", i, server.Name, server.IP, server.Port)
+	}
+	for i, group := range configuration.Groups {
+		fmt.Printf("group[%d] = %v\n", i, group)
+	}
+}
+
 func main() {
+	// read configuration
+	file, err := os.Open("conf.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&configuration)
+	if err != nil {
+		log.Fatal(err)
+	}
+	showConfiguration()
+
 	flag.Parse()
 	http.HandleFunc("/", makeHandler(homeHandler))
 	http.HandleFunc("/edit/", makeHandler(editHandler))
@@ -348,5 +407,38 @@ func main() {
 		return
 	}
 
-	http.ListenAndServe(":8080", nil)
+	go http.ListenAndServe(":8080", nil)
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Printf("> ");
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatal(err)
+			continue
+		}
+		tokens := strings.FieldsFunc(line, func(r rune) bool {
+			switch r {
+			case ' ', '\t', '\n', '\r':
+				return true
+			}
+			return false
+		})
+		if len(tokens) < 1 {
+			fmt.Printf("unknown command %q\n", tokens)
+			continue
+		}
+		if tokens[0] == "getname" {
+			getName()
+		} else if tokens[0] == "setname" {
+			if len(tokens) < 2 {
+				fmt.Printf("unknown command %q\n", tokens)
+				continue
+			}
+			setName(tokens[1])
+		} else if tokens[0] == "getgroups" {
+			getGroups()
+		} else {
+			fmt.Println("unknown command...")
+		}
+	}
 }
