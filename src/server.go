@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
@@ -14,8 +16,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"bufio"
-	"encoding/json"
 )
 
 /*
@@ -37,7 +37,6 @@ type ioMapWriteRequest struct {
 	stdout bool   // True if stdout, else stdout.
 	output string // Output from running process
 }
-
 
 /*
 Details the information contained in a single python session, shared by a small group
@@ -61,11 +60,11 @@ type PythonSession struct {
 type Configuration struct {
 	Servers []struct {
 		Name string `json:"name"`
-		IP string `json:"ip"`
+		IP   string `json:"ip"`
 		Port string `json:"port"`
 	} `json:"servers"`
 	Groups []struct {
-		Name string `json:"name"`
+		Name    string   `json:"name"`
 		Members []string `json:"members"`
 	} `json:"groups"`
 }
@@ -74,11 +73,12 @@ type Configuration struct {
 Collection of global variables used by server.
 */
 var (
-	addr          = flag.Bool("addr", false, "find open address and print to final-port.txt")
-	gopath        = os.Getenv("GOPATH")
-	webpagesDir   = gopath + "webpages/"
-	validPath     = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|newsession)/([a-zA-Z0-9]*)$")
-	session       = new(PythonSession) // TODO Add ability to construct multiple distinct sessions.
+	addr        = flag.Bool("addr", false, "find open address and print to final-port.txt")
+	gopath      = os.Getenv("GOPATH")
+	webpagesDir = gopath + "webpages/"
+	validPath   = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|newsession)/([a-zA-Z0-9]*)$")
+	sessionMap  = make(map[string]*PythonSession)
+	//session       = new(PythonSession) // TODO Add ability to construct multiple distinct sessions.
 	configuration = new(Configuration)
 	serverName    = ""
 )
@@ -189,6 +189,11 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
+	sessionName := "abc"
+	session := sessionMap[sessionName]
+	if session == nil {
+		return
+	}
 
 	// ... and send that code to the master to be written to the session.
 	_, ok := <-session.chMasterReady
@@ -208,7 +213,11 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
-
+	sessionName := "abc"
+	session := sessionMap[sessionName]
+	if session == nil {
+		return
+	}
 	_, ok := <-session.chMasterReady
 	if ok {
 		session.chRequestIoNumber <- requestedIoNumber
@@ -229,7 +238,9 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 }
 func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
-	if session.cmd != nil {
+	sessionName := "abc"
+	session := sessionMap[sessionName]
+	if session != nil && session.cmd != nil {
 		fmt.Fprintf(w, "ACTIVE")
 	} else {
 		fmt.Fprintf(w, "DEAD")
@@ -239,6 +250,11 @@ func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
 func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("NEW SESSION")
 	// argv := []string{"-i"}
+	sessionName := "abc"
+	session := sessionMap[sessionName]
+	if session == nil {
+		session = new(PythonSession)
+	}
 	if session.cmd != nil {
 		session.cmd.Process.Kill()
 		fmt.Println("Tried to kill old session.")
@@ -259,6 +275,7 @@ func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 	session.chResponseIoNumber = make(chan *ioNumberResponse)
 	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
 
+	sessionMap[sessionName] = session
 	fmt.Println("Created a new process: ")
 	session.inPipe, err = session.cmd.StdinPipe()
 	if err != nil {
@@ -410,7 +427,7 @@ func main() {
 	go http.ListenAndServe(":8080", nil)
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Printf("> ");
+		fmt.Printf("> ")
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			log.Fatal(err)
