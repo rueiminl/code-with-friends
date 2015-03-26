@@ -73,12 +73,11 @@ type Configuration struct {
 Collection of global variables used by server.
 */
 var (
-	addr        = flag.Bool("addr", false, "find open address and print to final-port.txt")
-	gopath      = os.Getenv("GOPATH")
-	webpagesDir = gopath + "webpages/"
-	validPath   = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|newsession)/([a-zA-Z0-9]*)$")
-	sessionMap  = make(map[string]*PythonSession)
-	//session       = new(PythonSession) // TODO Add ability to construct multiple distinct sessions.
+	addr          = flag.Bool("addr", false, "find open address and print to final-port.txt")
+	gopath        = os.Getenv("GOPATH")
+	webpagesDir   = gopath + "webpages/"
+	validPath     = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|newsession)/([a-zA-Z0-9]*)$")
+	sessionMap    = make(map[string]*PythonSession)
 	configuration = new(Configuration)
 	serverName    = ""
 )
@@ -249,6 +248,7 @@ func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
 
 func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("NEW SESSION")
+	fmt.Println(r.FormValue("newsessionname"))
 	// argv := []string{"-i"}
 	sessionName := "abc"
 	session := sessionMap[sessionName]

@@ -45,7 +45,8 @@
             <pre class="bg-primary">Welcome to Code With Friends!</pre>
         </div>
         <div class="col-md-2" style="border: 2px solid red;">
-            <form id="formnewsession" action="/newsession" method="POST"> 
+            <form id="formnewsession" action="/newsession/" method="POST">
+                <input type="text" name="newsessionname" />
                 <input id="newsessionbutton" type="submit" class="btn btn-primary" value="Create new session" disabled />
             </form>
         </div>
@@ -91,7 +92,7 @@
         $.ajax({
             type: $theForm.attr('method'),
             url: $theForm.attr('action'),
-            data: {}, // TODO Fill this with unique session ID maybe?
+            data: $theForm.serialize(), // TODO Fill this with unique session ID maybe?
             success: function(data) {
                 console.log('Yay! New session.');
             }
