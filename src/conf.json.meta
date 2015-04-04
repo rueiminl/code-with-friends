@@ -1,0 +1,18 @@
+Note:
+1. Runtime modification of servers and groups is NOT allowed.
+2. A server belongs to one and only one group.
+3. groups.members and servers.group must be matched with each other carefully.
+
+Data Structure:
+
+	servers: a list of servers
+		name: the name of server
+		ip, port: the communication port (rpc)
+		group: in which group the server is. could be useful when multicasting to the group
+		httpport: the port of web service; default value:8080. could be useful when deploying multiple servers on a single machine
+		
+	groups: a list of groups
+		name: the name of group; used for identification only
+		members: servers
+
+

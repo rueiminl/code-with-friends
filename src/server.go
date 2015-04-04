@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -62,6 +61,7 @@ type Configuration struct {
 		Name string `json:"name"`
 		IP   string `json:"ip"`
 		Port string `json:"port"`
+		HttpPort string `json:"httpport"`
 	} `json:"servers"`
 	Groups []struct {
 		Name    string   `json:"name"`
@@ -382,14 +382,25 @@ func getGroups() {
 // debug only
 func showConfiguration() {
 	for i, server := range configuration.Servers {
-		fmt.Printf("server[%d] = %s (%s:%s)\n", i, server.Name, server.IP, server.Port)
+		fmt.Printf("server[%d]: %s (%s:%s) listen on %s\n", i, server.Name, server.IP, server.Port, server.HttpPort)
 	}
 	for i, group := range configuration.Groups {
 		fmt.Printf("group[%d] = %v\n", i, group)
 	}
 }
 
+func usage() {
+	fmt.Printf("usage: %s serverName\n", os.Args[0])
+}
+
 func main() {
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(0)
+	}
+	// server name should be the first argument
+	serverName = os.Args[1]
+
 	// read configuration
 	file, err := os.Open("conf.json")
 	if err != nil {
@@ -400,7 +411,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// debug only
 	showConfiguration()
+	
+	// should build rpc to other servers in the same group based on serverName and 
+	// go connectToGroup()
 
 	flag.Parse()
 	http.HandleFunc("/", makeHandler(homeHandler))
@@ -424,38 +439,5 @@ func main() {
 		return
 	}
 
-	go http.ListenAndServe(":8080", nil)
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Printf("> ")
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			log.Fatal(err)
-			continue
-		}
-		tokens := strings.FieldsFunc(line, func(r rune) bool {
-			switch r {
-			case ' ', '\t', '\n', '\r':
-				return true
-			}
-			return false
-		})
-		if len(tokens) < 1 {
-			fmt.Printf("unknown command %q\n", tokens)
-			continue
-		}
-		if tokens[0] == "getname" {
-			getName()
-		} else if tokens[0] == "setname" {
-			if len(tokens) < 2 {
-				fmt.Printf("unknown command %q\n", tokens)
-				continue
-			}
-			setName(tokens[1])
-		} else if tokens[0] == "getgroups" {
-			getGroups()
-		} else {
-			fmt.Println("unknown command...")
-		}
-	}
+	http.ListenAndServe(":8080", nil)
 }
