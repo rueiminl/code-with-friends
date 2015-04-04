@@ -6,19 +6,30 @@
 			"port"     : "12345",
 			"httpport" : "8080",
 			"group"    : "A"
-		},
-		{
+		}
+		,{
 			"name"     : "bob",
 			"ip"       : "127.0.0.1",
 			"port"     : "12346",
 			"httpport" : "8000",
 			"group"    : "A"
 		}
+		,{
+			"name"     : "charlie",
+			"ip"       : "127.0.0.1",
+			"port"     : "12347",
+			"httpport" : "8080",
+			"group"    : "B"
+		}
 	],
 	"groups" : [
 		{
 			"name"    : "A",
 			"members" : ["alice", "bob"]
+		}
+		,{
+			"name"    : "B",
+			"members" : ["charlie"]
 		}
 	]
 }

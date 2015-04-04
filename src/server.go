@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"multicaster"
+	"hash/fnv"
 )
 
 /*
@@ -365,6 +366,12 @@ func writeToSession(inputString string, s *PythonSession) {
 	}
 }
 
+func getGroupId(sessionName string) int {
+	h := fnv.New32a()
+	h.Write([]byte(sessionName))
+	return int(h.Sum32()) % len(configuration.Groups)
+}
+
 // debug only
 func showConfiguration() {
 	for i, server := range configuration.Servers {
@@ -439,13 +446,9 @@ func main() {
 		}
 		caster.AddMember(server.Name, server.IP + ":" + server.Port)
 	}
-	go receiveMulticast()
-	
 	// debug only
+	go receiveMulticast()
 	showConfiguration()
-	
-	// should build rpc to other servers in the same group based on serverName and 
-	// go connectToGroup()
 
 	flag.Parse()
 	http.HandleFunc("/", makeHandler(homeHandler))
