@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"multicaster"
 )
 
 /*
@@ -82,6 +83,7 @@ var (
 	configuration = new(Configuration)
 	serverId      = -1
 	groupId       = -1
+	caster        = new(multicaster.Multicaster)
 )
 
 /*
@@ -204,6 +206,8 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		fmt.Println("No session active.")
 	}
+	// test only
+	caster.Multicast(codeToExecute, 5)
 }
 func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 	urlPrefixLen := len("/readexecutedcode/")
@@ -373,6 +377,13 @@ func showConfiguration() {
 	
 }
 
+func receiveMulticast() {
+	ch := caster.GetMessageChan()
+	for {
+		fmt.Println(<-ch)
+	}
+}
+
 func usage() {
 	fmt.Printf("usage: %s serverName\n", os.Args[0])
 }
@@ -395,7 +406,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// search serverName in configuration
 	for i, server := range configuration.Servers {
 		if serverName == server.Name {
@@ -419,6 +430,16 @@ func main() {
 		log.Fatal("Error: group " + configuration.Servers[serverId].Group + " not found in configuration")
 		os.Exit(0)
 	}
+	
+	// initialize multicast
+	caster.Initialize(configuration.Servers[serverId].Port)
+	for i, server := range configuration.Servers {
+		if serverId == i {
+			continue
+		}
+		caster.AddMember(server.Name, server.IP + ":" + server.Port)
+	}
+	go receiveMulticast()
 	
 	// debug only
 	showConfiguration()
