@@ -506,7 +506,9 @@ func main() {
 		if serverId == i {
 			continue
 		}
-		caster.AddMember(server.Name, server.IP + ":" + server.Port)
+		if configuration.Groups[groupId].Name == server.Group {
+			caster.AddMember(server.Name, server.IP + ":" + server.Port)
+		}
 	}
 	// debug only
 	go receiveMulticast()
