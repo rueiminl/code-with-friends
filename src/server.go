@@ -244,7 +244,7 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 }
 func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
-	sessionName := "abc"
+	sessionName := r.FormValue("sessionName")
 	session := sessionMap[sessionName]
 	if session != nil && session.cmd != nil {
 		fmt.Fprintf(w, "ACTIVE")
@@ -254,10 +254,9 @@ func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func resetsessionHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("RESET SESSION")
-	fmt.Println(r.FormValue("sessionname"))
 	// argv := []string{"-i"}
-	sessionName := "abc"
+	sessionName := r.FormValue("sessionName")
+	fmt.Println("RESET SESSION" + sessionName)
 	session := sessionMap[sessionName]
 	if session == nil {
 		session = new(PythonSession)
@@ -440,7 +439,7 @@ func showConfiguration() {
 	for i, group := range configuration.Groups {
 		fmt.Printf("group[%d] = %v\n", i, group)
 	}
-	fmt.Printf("I am %d-th server (%s) in %d-th Group (%s)", serverId, configuration.Servers[serverId].Name, groupId, configuration.Groups[groupId].Name)
+	fmt.Printf("I am %d-th server (%s) in %d-th Group (%s)\n", serverId, configuration.Servers[serverId].Name, groupId, configuration.Groups[groupId].Name)
 	
 }
 

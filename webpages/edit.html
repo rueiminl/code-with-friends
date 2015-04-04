@@ -50,6 +50,7 @@
         </div>
         <div class="col-md-2" style="border: 2px solid red;">
             <p>Current Session: <span id="sessionName"></span></p>
+            <p>Status: <span id="sessionStatus">No session</span></p>
             <form id="formresetsession" action="/resetsession/" method="POST">
                 <input id="resetsessionbutton" type="submit" class="btn btn-danger" value="Reset session" disabled />
             </form>
@@ -153,23 +154,17 @@
 			}
             $.ajax({
                 url: "/readsessionactive/",
-                type: "GET",
+                type: "POST",
+				data: {sessionName: $("#sessionName").text()},
                 success: function(data) {
                     console.log("got data: " + data);
                     mycodebutton = document.getElementById("mycodebutton");
                     newsessionbutton = document.getElementById("newsessionbutton");
+					$("#sessionStatus").text(data)
                     if (data == "ACTIVE") {
-                        $("#newsessionbutton").removeClass("btn-primary");
-                        $("#newsessionbutton").addClass("btn-danger");
-                        newsessionbutton.value = "Restart session";
-                        newsessionbutton.disabled = false;
                         mycodebutton.disabled = false;
                         pollForActiveSessionDelay = 2500;
                     } else if (data == "DEAD") {
-                        $("#newsessionbutton").removeClass("btn-danger");
-                        $("#newsessionbutton").addClass("btn-primary");
-                        newsessionbutton.value = "Create new session";
-                        newsessionbutton.disabled = false;
                         mycodebutton.disabled = true;
                     }
                 },
