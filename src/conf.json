@@ -1,14 +1,14 @@
 {
 	"servers" : [
 		{
-			"name"     : "1",
+			"name"     : "alice",
 			"ip"       : "127.0.0.1",
 			"port"     : "12345",
 			"httpport" : "8080",
 			"group"    : "A"
 		},
 		{
-			"name"     : "2",
+			"name"     : "bob",
 			"ip"       : "127.0.0.1",
 			"port"     : "12346",
 			"httpport" : "8000",
@@ -18,7 +18,7 @@
 	"groups" : [
 		{
 			"name"    : "A",
-			"members" : ["1", "2"]
+			"members" : ["alice", "bob"]
 		}
 	]
 }

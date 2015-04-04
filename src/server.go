@@ -58,10 +58,11 @@ type PythonSession struct {
 
 type Configuration struct {
 	Servers []struct {
-		Name string `json:"name"`
-		IP   string `json:"ip"`
-		Port string `json:"port"`
+		Name     string `json:"name"`
+		IP       string `json:"ip"`
+		Port     string `json:"port"`
 		HttpPort string `json:"httpport"`
+		Group string    `json:"group"`
 	} `json:"servers"`
 	Groups []struct {
 		Name    string   `json:"name"`
@@ -79,7 +80,8 @@ var (
 	validPath     = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|newsession)/([a-zA-Z0-9]*)$")
 	sessionMap    = make(map[string]*PythonSession)
 	configuration = new(Configuration)
-	serverName    = ""
+	serverId      = -1
+	groupId       = -1
 )
 
 /*
@@ -359,26 +361,6 @@ func writeToSession(inputString string, s *PythonSession) {
 	}
 }
 
-func setName(name string) {
-	serverName = name
-	fmt.Println("setName: " + name)
-}
-
-func getName() {
-	fmt.Println("getName: " + serverName)
-}
-
-func getGroups() {
-	fmt.Println("getGroups: ")
-	for _, group := range configuration.Groups {
-		for _, member := range group.Members {
-			if member == serverName {
-				fmt.Println("\t" + group.Name)
-			}
-		}
-	}
-}
-
 // debug only
 func showConfiguration() {
 	for i, server := range configuration.Servers {
@@ -387,6 +369,8 @@ func showConfiguration() {
 	for i, group := range configuration.Groups {
 		fmt.Printf("group[%d] = %v\n", i, group)
 	}
+	fmt.Printf("I am %d-th server (%s) in %d-th Group (%s)", serverId, configuration.Servers[serverId].Name, groupId, configuration.Groups[groupId].Name)
+	
 }
 
 func usage() {
@@ -394,12 +378,12 @@ func usage() {
 }
 
 func main() {
+	// server name should be the first argument
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(0)
 	}
-	// server name should be the first argument
-	serverName = os.Args[1]
+	serverName := os.Args[1]
 
 	// read configuration
 	file, err := os.Open("conf.json")
@@ -411,6 +395,31 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	
+	// search serverName in configuration
+	for i, server := range configuration.Servers {
+		if serverName == server.Name {
+			serverId = i
+			break
+		}
+	}
+	if serverId < 0 {
+		log.Fatal("Error: server " + serverName + " not found in configuration")
+		os.Exit(0)
+	}
+
+	// search group in configuration
+	for i, group := range configuration.Groups {
+		if configuration.Servers[serverId].Group == group.Name {
+			groupId = i
+			break
+		}
+	}
+	if groupId < 0 {
+		log.Fatal("Error: group " + configuration.Servers[serverId].Group + " not found in configuration")
+		os.Exit(0)
+	}
+	
 	// debug only
 	showConfiguration()
 	
@@ -439,5 +448,5 @@ func main() {
 		return
 	}
 
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":" + configuration.Servers[serverId].HttpPort, nil)
 }
