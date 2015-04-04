@@ -367,11 +367,12 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("JOIN SESSION " + sessionName)	
 	session := sessionMap[sessionName]
 	if session == nil {
-		fmt.Println("session == nil !!!")
 		sessionMap[sessionName] = createSession()
-	} else {
-		fmt.Println("session != nil !!!")
 	}
+	
+	// Todo redirect to the master server of group
+	groupId := getGroupId(sessionName)
+	fmt.Printf("the session should be handled by group %d\n", groupId);
 }
 
 func waitForSessionDeath(s *PythonSession) {

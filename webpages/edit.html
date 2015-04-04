@@ -56,7 +56,7 @@
             </form>
         </div>
         <div class="col-md-2" style="border: 2px solid red;">
-            <form id="formnewsession" action="/newsession/" method="POST">
+            <form id="formnewsession" action="/joinsession/" method="POST">
                 <input type="text" name="newsessionname" id="newSessionName" />
                 <input id="newsessionbutton" type="submit" class="btn btn-primary" value="Create new session" />
             </form>
@@ -118,7 +118,7 @@
         $.ajax({
             type: $theForm.attr('method'),
             url: $theForm.attr('action'),
-			data: {newsessionname:$('#newSessionName').val()},
+			data: {newSessionName:$('#newSessionName').val()},
             success: function(data) {
                 console.log('Yay! New session.');
             }
@@ -137,7 +137,10 @@
         $.ajax({
             type: $theForm.attr('method'),
             url: $theForm.attr('action'),
-            data: {codeToExecute : editor.getSession().getValue()},
+            data: {
+			    codeToExecute : editor.getSession().getValue(),
+				sessionName : $("#sessionName").text()
+			},
             success: function(data) {
                 console.log('Yay! Form sent.');
             }
@@ -186,7 +189,8 @@
 			}
             $.ajax({
                 url: "/readexecutedcode/" + seqNum,
-                type: "GET",
+                type: "POST",
+				data: {sessionName: $("#sessionName").text()},
                 success: function(data) {
                     console.log("For seqNum: " + seqNum + ", got data: " + data);
                     ta = document.getElementById("executedCode");
