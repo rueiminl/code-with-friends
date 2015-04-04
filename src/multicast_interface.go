@@ -1,6 +1,6 @@
 
 
-func Inititialize(...) (mc *MulticastType)
+func Initialize(...) (mc *MulticastType)
 
 
 // Blocks until everything is sent

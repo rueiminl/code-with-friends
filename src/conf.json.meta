@@ -15,4 +15,7 @@ Data Structure:
 		name: the name of group; used for identification only
 		members: servers
 
+Nice to have:
 
+	session list (across groups)
+	access control (otherwise everyone could reset others' session) 

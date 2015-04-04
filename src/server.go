@@ -79,7 +79,7 @@ var (
 	addr          = flag.Bool("addr", false, "find open address and print to final-port.txt")
 	gopath        = os.Getenv("GOPATH")
 	webpagesDir   = gopath + "webpages/"
-	validPath     = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|newsession)/([a-zA-Z0-9]*)$")
+	validPath     = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|resetsession|newsession)/([a-zA-Z0-9]*)$")
 	sessionMap    = make(map[string]*PythonSession)
 	configuration = new(Configuration)
 	serverId      = -1
@@ -251,6 +251,66 @@ func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		fmt.Fprintf(w, "DEAD")
 	}
+}
+
+func resetsessionHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("RESET SESSION")
+	fmt.Println(r.FormValue("sessionname"))
+	// argv := []string{"-i"}
+	sessionName := "abc"
+	session := sessionMap[sessionName]
+	if session == nil {
+		session = new(PythonSession)
+	}
+	if session.cmd != nil {
+		session.cmd.Process.Kill()
+		fmt.Println("Tried to kill old session.")
+	}
+	argv := "-i"
+	binary, err := exec.LookPath("python")
+	session.cmd = exec.Command(binary, argv)
+	if session.cmd == nil {
+		fmt.Println("error: ")
+		fmt.Println(err)
+		return
+	}
+	session.ioNumber = 0
+	session.ioMap = make(map[int]string)
+	session.chMasterReady = make(chan bool)
+	session.chExecuteCode = make(chan string)
+	session.chRequestIoNumber = make(chan int)
+	session.chResponseIoNumber = make(chan *ioNumberResponse)
+	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
+
+	sessionMap[sessionName] = session
+	fmt.Println("Created a new process: ")
+	session.inPipe, err = session.cmd.StdinPipe()
+	if err != nil {
+		fmt.Println("Cannot make stdin pipe")
+		return
+	}
+	session.outPipe, err = session.cmd.StdoutPipe()
+	if err != nil {
+		fmt.Println("Cannot make stdout pipe")
+		return
+	}
+	session.errPipe, err = session.cmd.StderrPipe()
+	if err != nil {
+		fmt.Println("Cannot make stderr pipe")
+		return
+	}
+	go handleSessionOutput(session) // Start listening to STDOUT/STDERR.
+	err = session.cmd.Start()
+	if err != nil {
+		fmt.Println("Start cannot run")
+		fmt.Println(err)
+		return
+	}
+	//fmt.Println("About to do print hello world command")
+	//writeToSession("print 'hello world'\n", session)
+	//fmt.Println("about to wait...")
+	go waitForSessionDeath(session)
+	go sessionMaster(session)
 }
 
 func newsessionHandler(w http.ResponseWriter, r *http.Request) {
@@ -457,6 +517,7 @@ func main() {
 	http.HandleFunc("/readexecutedcode/", makeHandler(readexecutedcodeHandler))
 	http.HandleFunc("/readsessionactive/", makeHandler(readsessionactiveHandler))
 	http.HandleFunc("/newsession/", makeHandler(newsessionHandler))
+	http.HandleFunc("/resetsession/", makeHandler(resetsessionHandler))
 
 	if *addr {
 		l, err := net.Listen("tcp", "127.0.0.1:0")

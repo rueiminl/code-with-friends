@@ -24,6 +24,10 @@
         border: 2px solid green;
     }
 
+    #formresetsession {
+        text-align: center;
+    }
+
     #formnewsession {
         text-align: center;
     }
@@ -45,9 +49,15 @@
             <pre class="bg-primary">Welcome to Code With Friends!</pre>
         </div>
         <div class="col-md-2" style="border: 2px solid red;">
+            <p>Current Session: <span id="sessionName"></span></p>
+            <form id="formresetsession" action="/resetsession/" method="POST">
+                <input id="resetsessionbutton" type="submit" class="btn btn-danger" value="Reset session" disabled />
+            </form>
+        </div>
+        <div class="col-md-2" style="border: 2px solid red;">
             <form id="formnewsession" action="/newsession/" method="POST">
-                <input type="text" name="newsessionname" />
-                <input id="newsessionbutton" type="submit" class="btn btn-primary" value="Create new session" disabled />
+                <input type="text" name="newsessionname" id="newSessionName" />
+                <input id="newsessionbutton" type="submit" class="btn btn-primary" value="Create new session" />
             </form>
         </div>
     </div>
@@ -85,14 +95,29 @@
         editors[i].getSession().setMode("ace/mode/python");
     }
 
-    // React to creating new session.
-    $('#formnewsession').submit(function() {
+    // React to reset the session.
+    $('#formresetsession').submit(function() {
         $theForm = $(this);
-        document.getElementById("newsessionbutton").disabled = true;
         $.ajax({
             type: $theForm.attr('method'),
             url: $theForm.attr('action'),
             data: $theForm.serialize(), // TODO Fill this with unique session ID maybe?
+            success: function(data) {
+                console.log('Yay! Reset session.');
+            }
+        });
+        return false;
+    });
+
+    // React to creating new session.
+    $('#formnewsession').submit(function() {
+        $theForm = $(this);
+        document.getElementById("resetsessionbutton").disabled = false;
+		$('#sessionName').text($('#newSessionName').val());
+        $.ajax({
+            type: $theForm.attr('method'),
+            url: $theForm.attr('action'),
+			data: {newsessionname:$('#newSessionName').val()},
             success: function(data) {
                 console.log('Yay! New session.');
             }
@@ -122,6 +147,10 @@
     var pollForActiveSessionDelay = 1000;
     (function pollForActiveSession() {
         setTimeout(function() {
+            if ($("#sessionName").text() == "") {
+				setTimeout(pollForActiveSession, 1000);
+                return;
+			}
             $.ajax({
                 url: "/readsessionactive/",
                 type: "GET",
@@ -156,6 +185,10 @@
     var messageReceived = true;
     (function pollForExecutedCode() {
         setTimeout(function() {
+            if ($("#sessionName").text() == "") {
+				setTimeout(pollForExecutedCode, 1000);
+                return;
+			}
             $.ajax({
                 url: "/readexecutedcode/" + seqNum,
                 type: "GET",
