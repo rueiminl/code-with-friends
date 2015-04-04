@@ -79,7 +79,7 @@ var (
 	addr          = flag.Bool("addr", false, "find open address and print to final-port.txt")
 	gopath        = os.Getenv("GOPATH")
 	webpagesDir   = gopath + "webpages/"
-	validPath     = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|resetsession|newsession)/([a-zA-Z0-9]*)$")
+	validPath     = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|resetsession|joinsession)/([a-zA-Z0-9]*)$")
 	sessionMap    = make(map[string]*PythonSession)
 	configuration = new(Configuration)
 	serverId      = -1
@@ -193,7 +193,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
-	sessionName := "abc"
+	sessionName := r.FormValue("sessionName")
 	session := sessionMap[sessionName]
 	if session == nil {
 		return
@@ -219,7 +219,7 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
-	sessionName := "abc"
+	sessionName := r.FormValue("sessionName")
 	session := sessionMap[sessionName]
 	if session == nil {
 		return
@@ -312,26 +312,15 @@ func resetsessionHandler(w http.ResponseWriter, r *http.Request) {
 	go sessionMaster(session)
 }
 
-func newsessionHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("NEW SESSION")
-	fmt.Println(r.FormValue("newsessionname"))
-	// argv := []string{"-i"}
-	sessionName := "abc"
-	session := sessionMap[sessionName]
-	if session == nil {
-		session = new(PythonSession)
-	}
-	if session.cmd != nil {
-		session.cmd.Process.Kill()
-		fmt.Println("Tried to kill old session.")
-	}
+func createSession() *PythonSession {
+	session := new(PythonSession)
 	argv := "-i"
 	binary, err := exec.LookPath("python")
 	session.cmd = exec.Command(binary, argv)
 	if session.cmd == nil {
 		fmt.Println("error: ")
 		fmt.Println(err)
-		return
+		return nil
 	}
 	session.ioNumber = 0
 	session.ioMap = make(map[int]string)
@@ -341,35 +330,48 @@ func newsessionHandler(w http.ResponseWriter, r *http.Request) {
 	session.chResponseIoNumber = make(chan *ioNumberResponse)
 	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
 
-	sessionMap[sessionName] = session
 	fmt.Println("Created a new process: ")
 	session.inPipe, err = session.cmd.StdinPipe()
 	if err != nil {
 		fmt.Println("Cannot make stdin pipe")
-		return
+		return nil
 	}
 	session.outPipe, err = session.cmd.StdoutPipe()
 	if err != nil {
 		fmt.Println("Cannot make stdout pipe")
-		return
+		return nil
 	}
 	session.errPipe, err = session.cmd.StderrPipe()
 	if err != nil {
 		fmt.Println("Cannot make stderr pipe")
-		return
+		return nil
 	}
 	go handleSessionOutput(session) // Start listening to STDOUT/STDERR.
 	err = session.cmd.Start()
 	if err != nil {
 		fmt.Println("Start cannot run")
 		fmt.Println(err)
-		return
+		return nil
 	}
 	//fmt.Println("About to do print hello world command")
 	//writeToSession("print 'hello world'\n", session)
 	//fmt.Println("about to wait...")
 	go waitForSessionDeath(session)
 	go sessionMaster(session)
+	return session
+}
+
+func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
+	// argv := []string{"-i"}
+	sessionName := r.FormValue("newSessionName")
+	fmt.Println("JOIN SESSION " + sessionName)	
+	session := sessionMap[sessionName]
+	if session == nil {
+		fmt.Println("session == nil !!!")
+		sessionMap[sessionName] = createSession()
+	} else {
+		fmt.Println("session != nil !!!")
+	}
 }
 
 func waitForSessionDeath(s *PythonSession) {
@@ -515,7 +517,7 @@ func main() {
 	http.HandleFunc("/executecode/", makeHandler(executecodeHandler))
 	http.HandleFunc("/readexecutedcode/", makeHandler(readexecutedcodeHandler))
 	http.HandleFunc("/readsessionactive/", makeHandler(readsessionactiveHandler))
-	http.HandleFunc("/newsession/", makeHandler(newsessionHandler))
+	http.HandleFunc("/joinsession/", makeHandler(joinsessionHandler))
 	http.HandleFunc("/resetsession/", makeHandler(resetsessionHandler))
 
 	if *addr {
