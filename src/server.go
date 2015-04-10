@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
+	"multicaster"
 	"net"
 	"net/http"
 	"os"
@@ -15,8 +17,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"multicaster"
-	"hash/fnv"
 )
 
 /*
@@ -64,7 +64,7 @@ type Configuration struct {
 		IP       string `json:"ip"`
 		Port     string `json:"port"`
 		HttpPort string `json:"httpport"`
-		Group string    `json:"group"`
+		Group    string `json:"group"`
 	} `json:"servers"`
 	Groups []struct {
 		Name    string   `json:"name"`
@@ -83,6 +83,7 @@ var (
 	sessionMap    = make(map[string]*PythonSession)
 	configuration = new(Configuration)
 	serverId      = -1
+	masterId      = -1
 	groupId       = -1
 	caster        = new(multicaster.Multicaster)
 )
@@ -183,6 +184,18 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 func editHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "edit")
 }
+
+func sendExecuteRequestToSessionMaster(session *PythonSession, codeToExecute string) {
+	_, ok := <-session.chMasterReady
+	if ok {
+		fmt.Println("writing to active session.")
+		session.chExecuteCode <- codeToExecute // Must request that master handle session.
+	} else {
+		fmt.Println("No session active.")
+	}
+
+}
+
 func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse necessary code to be excuted...
 	codeToExecute := r.FormValue("codeToExecute")
@@ -200,16 +213,18 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ... and send that code to the master to be written to the session.
-	_, ok := <-session.chMasterReady
-	if ok {
-		fmt.Println("writing to active session.")
-		session.chExecuteCode <- codeToExecute // Must request that master handle session.
-	} else {
-		fmt.Println("No session active.")
+	if (masterId == -1) || (masterId == serverId) {
+		mi := &MessageInfo{sessionName, codeToExecute, serverId}
+		if caster.Multicast(mi, 5) {
+			fmt.Println("Multicast code to session SUCCESS")
+			masterId = serverId
+			sendExecuteRequestToSessionMaster(session, codeToExecute)
+		} else {
+			fmt.Println("Multicast code to session FAILURE")
+		}
 	}
-	// test only
-	caster.Multicast(codeToExecute, 5)
 }
+
 func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 	urlPrefixLen := len("/readexecutedcode/")
 	requestedIoNumber, err := strconv.Atoi(r.URL.Path[urlPrefixLen:])
@@ -364,15 +379,15 @@ func createSession() *PythonSession {
 func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 	// argv := []string{"-i"}
 	sessionName := r.FormValue("newSessionName")
-	fmt.Println("JOIN SESSION " + sessionName)	
+	fmt.Println("JOIN SESSION " + sessionName)
 	session := sessionMap[sessionName]
 	if session == nil {
 		sessionMap[sessionName] = createSession()
 	}
-	
-	// Todo redirect to the master server of group
+
+	// TODO: redirect to the master server of group
 	groupId := getGroupId(sessionName)
-	fmt.Printf("the session should be handled by group %d\n", groupId);
+	fmt.Printf("the session should be handled by group %d\n", groupId)
 }
 
 func waitForSessionDeath(s *PythonSession) {
@@ -443,13 +458,26 @@ func showConfiguration() {
 		fmt.Printf("group[%d] = %v\n", i, group)
 	}
 	fmt.Printf("I am %d-th server (%s) in %d-th Group (%s)\n", serverId, configuration.Servers[serverId].Name, groupId, configuration.Groups[groupId].Name)
-	
+
 }
 
 func receiveMulticast() {
 	ch := caster.GetMessageChan()
 	for {
-		fmt.Println(<-ch)
+		mi := <-ch
+		if masterId == -1 {
+			fmt.Printf("Multicast received: Setting master to %d\n", mi.MasterId)
+			masterId = mi.MasterId
+		}
+		sessionName := mi.SessionName
+		session := sessionMap[sessionName]
+		if session == nil {
+			sessionMap[sessionName] = createSession()
+		}
+		codeToExecute := mi.codeToExecute
+		if codeToExecute != "" {
+			sendExecuteRequestToSessionMaster(session, codeToExecute)
+		}
 	}
 }
 
@@ -499,7 +527,7 @@ func main() {
 		log.Fatal("Error: group " + configuration.Servers[serverId].Group + " not found in configuration")
 		os.Exit(0)
 	}
-	
+
 	// initialize multicast
 	caster.Initialize(configuration.Servers[serverId].Port)
 	for i, server := range configuration.Servers {
@@ -507,7 +535,7 @@ func main() {
 			continue
 		}
 		if configuration.Groups[groupId].Name == server.Group {
-			caster.AddMember(server.Name, server.IP + ":" + server.Port)
+			caster.AddMember(server.Name, server.IP+":"+server.Port)
 		}
 	}
 	// debug only
@@ -537,5 +565,5 @@ func main() {
 		return
 	}
 
-	http.ListenAndServe(":" + configuration.Servers[serverId].HttpPort, nil)
+	http.ListenAndServe(":"+configuration.Servers[serverId].HttpPort, nil)
 }
