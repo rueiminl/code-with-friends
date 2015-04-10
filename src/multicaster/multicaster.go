@@ -18,7 +18,7 @@ type Multicaster struct{
 	memberID string
 	passer PasserRPC
 	ackChan chan string
-	messageChan chan Message
+	messageChan chan MessageInfo
 }
 
 /*to recieve a Message from another node
@@ -28,6 +28,7 @@ type Multicaster struct{
 * it has recieved acks from all the other nodes(except itself and the sending node)
 */
 func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
+	info := MessageInfo{"", "", 0}
 	if message.Type == "message" {
 		*reply = "ack"
 		memMap := this.owner.members
@@ -38,7 +39,7 @@ func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 			}
 
 			addr := memMap[key]
-			go this.owner.sendMessage(addr, "", "ackR")
+			go this.owner.sendMessage(addr, info, "ackR")
 		}
 		l := len(memMap)
 
@@ -47,9 +48,9 @@ func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 			<- this.ackChan
 		}
 		//deliver message
-		this.owner.messageChan <- message
+		this.owner.messageChan <- message.Content
 		//send ack to the sending node to confirm that it has received the message
-		go this.owner.sendMessage(message.Source, "", "ackS")
+		go this.owner.sendMessage(message.Source, info, "ackS")
 	} else if message.Type == "ackR"{
 		this.ackChan <- "ack"
 	} else if message.Type == "ackS" {
@@ -79,14 +80,14 @@ func (this *Multicaster) portListenner(port string){
 * send out the message to a single node,
 * the return value is the reply from the dest node
 */
-func (this *Multicaster) sendMessage(dest string, content string, mType string) string {
+func (this *Multicaster) sendMessage(dest string, info MessageInfo, mType string) string {
 	c, err := rpc.Dial("tcp", dest)
     if err != nil {
         fmt.Println(err)
         return ""
     }
     var result string
-    message := Message{this.members["#"], dest, content, mType}
+    message := Message{this.members["#"], dest, info, mType}
     err = c.Call("PasserRPC.ReceiveMessage", message, &result)
     //fmt.Println(result)
     if err != nil {
@@ -105,7 +106,7 @@ func (this *Multicaster) Initialize(newPort string){
 	this.passer.owner = this
 	this.passer.ackChan = make(chan string, 1024)
 	this.ackChan = make(chan string, 1024)
-	this.messageChan = make(chan Message, 1024)
+	this.messageChan = make(chan MessageInfo, 1024)
 	go this.portListenner(":" + this.port)
 }
 
@@ -121,7 +122,7 @@ func (this *Multicaster) AddMember(key, value string){
 /*
 * return the message mailbox
 */
-func (this *Multicaster) GetMessageChan() chan Message{
+func (this *Multicaster) GetMessageChan() chan MessageInfo{
 	return this.messageChan
 }
 
@@ -131,7 +132,7 @@ func (this *Multicaster) GetMessageChan() chan Message{
 * thinks the deliver fails
 * if the deliver succeeds, it will return true, else it will return false
 */
-func (this *Multicaster) Multicast(message string, timeout int) bool{
+func (this *Multicaster) Multicast(info MessageInfo, timeout int) bool{
 	for key := range this.members {
 		//skip on sending message to itself
 		if key == "#"{
@@ -139,7 +140,7 @@ func (this *Multicaster) Multicast(message string, timeout int) bool{
 		}
 
 		addr := this.members[key]
-		go this.sendMessage(addr, message, "message")
+		go this.sendMessage(addr, info, "message")
 	}
 
 	l := len(this.members)
