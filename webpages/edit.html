@@ -57,7 +57,7 @@
         </div>
         <div class="col-md-2" style="border: 2px solid red;">
             <form id="formnewsession" action="/joinsession/" method="POST">
-                <input type="text" name="newsessionname" id="newSessionName" />
+                <input type="text" name="newSessionName" id="newSessionName" />
                 <input id="newsessionbutton" type="submit" class="btn btn-primary" value="Join session" />
             </form>
         </div>
@@ -120,7 +120,12 @@
             url: $theForm.attr('action'),
 			data: {newSessionName:$('#newSessionName').val()},
             success: function(data) {
-                console.log('Yay! New session.');
+                if (data == "SUCCESS") {
+                    console.log('Yay! New session.');
+                } else {
+                    alert("Try joining that session from this server instead");
+                    window.location = data;
+                }
             }
         });
         return false;

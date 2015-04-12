@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 /*
@@ -84,8 +85,9 @@ var (
 	configuration = new(Configuration)
 	serverId      = -1
 	masterId      = -1
-	groupId       = -1
+	groupId       = -1 // TODO SET FROM CONF. REDIRECT.
 	caster        = new(multicaster.Multicaster)
+	mutex         = &sync.Mutex{}
 )
 
 /*
@@ -175,6 +177,7 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		fn(w, r)
 	}
 }
@@ -185,28 +188,52 @@ func editHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "edit")
 }
 
+func redirectToCorrectSession(sessionName string, w http.ResponseWriter, r *http.Request) bool {
+	desiredGroupId := getGroupId(sessionName)
+	desiredGroup := configuration.Groups[desiredGroupId]
+
+	if desiredGroupId != groupId {
+		// Redirect session request to the appropriate server.
+		fmt.Println("Redirecting request to the appropriate group: ", desiredGroupId)
+		for _, s := range configuration.Servers {
+			if s.Group == desiredGroup.Name {
+				newURL := "http://" + s.IP + ":" + s.HttpPort // + r.URL.Path
+				fmt.Println("\tRedirecting to ", newURL)
+				fmt.Fprintf(w, newURL)
+				return true
+			}
+		}
+		// Ideally, we should have redirected already, but this prevents falling
+		// through and executing on the wrong group.
+		return true
+	}
+	return false
+}
+
 func sendExecuteRequestToSessionMaster(session *PythonSession, codeToExecute string) {
+	fmt.Println("About to ask if master is ready")
 	_, ok := <-session.chMasterReady
+	fmt.Println("Got OK from master session")
 	if ok {
 		fmt.Println("writing to active session.")
 		session.chExecuteCode <- codeToExecute // Must request that master handle session.
 	} else {
 		fmt.Println("No session active.")
 	}
-
 }
 
 func executecodeHandler(w http.ResponseWriter, r *http.Request) {
+	sessionName := r.FormValue("sessionName")
 	// Parse necessary code to be excuted...
 	codeToExecute := r.FormValue("codeToExecute")
-	fmt.Fprintf(w, "Hey, you want me to execute this: "+codeToExecute)
 	codeToExecute += "\n" // Required to terminate command.
 	if strings.Count(codeToExecute, "\n") > 0 {
 		codeToExecute += "\n" // Double termination (possibly) required for multiline commands.
 	}
 
+	fmt.Println("Trying to execute: ", codeToExecute)
+
 	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
-	sessionName := r.FormValue("sessionName")
 	session := sessionMap[sessionName]
 	if session == nil {
 		return
@@ -214,7 +241,9 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// ... and send that code to the master to be written to the session.
 	if (masterId == -1) || (masterId == serverId) {
-		mi := &MessageInfo{sessionName, codeToExecute, serverId}
+		// In this case, we ARE the master.
+		mi := &multicaster.MessageInfo{sessionName, codeToExecute, serverId}
+		mutex.Lock()
 		if caster.Multicast(mi, 5) {
 			fmt.Println("Multicast code to session SUCCESS")
 			masterId = serverId
@@ -222,10 +251,19 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			fmt.Println("Multicast code to session FAILURE")
 		}
+		mutex.Unlock()
+	} else {
+		// Send the request to the master.
+		s := configuration.Servers[masterId]
+		newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+		fmt.Println("\tRedirecting to ", newURL)
+		http.Redirect(w, r, newURL, 307)
 	}
 }
 
 func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
+	sessionName := r.FormValue("sessionName")
+
 	urlPrefixLen := len("/readexecutedcode/")
 	requestedIoNumber, err := strconv.Atoi(r.URL.Path[urlPrefixLen:])
 	if err != nil {
@@ -234,7 +272,6 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
-	sessionName := r.FormValue("sessionName")
 	session := sessionMap[sessionName]
 	if session == nil {
 		return
@@ -255,7 +292,6 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}
-
 }
 func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
@@ -377,17 +413,16 @@ func createSession() *PythonSession {
 }
 
 func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
-	// argv := []string{"-i"}
 	sessionName := r.FormValue("newSessionName")
+	if redirectToCorrectSession(sessionName, w, r) {
+		return
+	}
 	fmt.Println("JOIN SESSION " + sessionName)
 	session := sessionMap[sessionName]
 	if session == nil {
 		sessionMap[sessionName] = createSession()
 	}
-
-	// TODO: redirect to the master server of group
-	groupId := getGroupId(sessionName)
-	fmt.Printf("the session should be handled by group %d\n", groupId)
+	fmt.Fprintf(w, "SUCCESS")
 }
 
 func waitForSessionDeath(s *PythonSession) {
@@ -473,8 +508,9 @@ func receiveMulticast() {
 		session := sessionMap[sessionName]
 		if session == nil {
 			sessionMap[sessionName] = createSession()
+			session = sessionMap[sessionName]
 		}
-		codeToExecute := mi.codeToExecute
+		codeToExecute := mi.CodeToExecute
 		if codeToExecute != "" {
 			sendExecuteRequestToSessionMaster(session, codeToExecute)
 		}

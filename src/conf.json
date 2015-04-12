@@ -11,14 +11,14 @@
 			"name"     : "bob",
 			"ip"       : "127.0.0.1",
 			"port"     : "12346",
-			"httpport" : "8000",
+			"httpport" : "8081",
 			"group"    : "A"
 		}
 		,{
 			"name"     : "charlie",
 			"ip"       : "127.0.0.1",
 			"port"     : "12347",
-			"httpport" : "8080",
+			"httpport" : "8082",
 			"group"    : "B"
 		}
 	],
