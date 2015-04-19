@@ -50,6 +50,7 @@
         </div>
         <div class="col-md-2" style="border: 2px solid red;">
             <p>Current Session: <span id="sessionName"></span></p>
+            <p>Current Username: <span id="userName"></span></p>
             <p>Status: <span id="sessionStatus">No session</span></p>
             <form id="formresetsession" action="/resetsession/" method="POST">
                 <input id="resetsessionbutton" type="submit" class="btn btn-danger" value="Reset session" disabled />
@@ -57,7 +58,8 @@
         </div>
         <div class="col-md-2" style="border: 2px solid red;">
             <form id="formnewsession" action="/joinsession/" method="POST">
-                <input type="text" name="newSessionName" id="newSessionName" />
+                <input type="text" name="newSessionName" id="newSessionName" placeholder="Enter Session Name"/>
+                <input type="text" name="newCoderName" id="newCoderName" placeholder="Enter Your Username"/>
                 <input id="newsessionbutton" type="submit" class="btn btn-primary" value="Join session" />
             </form>
         </div>
@@ -77,11 +79,11 @@
             <div class="myeditor" id="editor2">def bar(items):
     y = "This too!"
     return y</div>
-            <form action="/executecode/submit" method="POST">
-                <input type="submit" class="btn btn-default" value="Code" disabled />
+            <form action="/">
+                <div class="btn btn-default" disabled> Current Partner: <span id="partnerName"></span> </div>
             </form>
         </div>
-        <div class="col-md-2" style="border: 2px solid red;">
+        <div id="swapbox" class="col-md-2" style="border: 2px solid red;">
             <p> Swap Code Box Here </p>
         </div>
     </div>
@@ -94,6 +96,7 @@
         editors[i].setTheme("ace/theme/monokai");
         editors[i].setFontSize(12);
         editors[i].getSession().setMode("ace/mode/python");
+        editors[i].$blockScrolling = Infinity;
     }
 
     // React to reset the session.
@@ -118,10 +121,14 @@
         $.ajax({
             type: $theForm.attr('method'),
             url: $theForm.attr('action'),
-			data: {newSessionName:$('#newSessionName').val()},
+            data: {newSessionName: $('#newSessionName').val(),
+                   newCoderName: $('#newCoderName').val()},
             success: function(data) {
                 if (data == "SUCCESS") {
                     console.log('Yay! New session.');
+		            $('#userName').text($('#newCoderName').val());
+                } else if (data == "FAILURE") {
+                    alert("Try inputting different session name / username. That combination failed.");
                 } else {
                     alert("Try joining that session from this server instead");
                     window.location = data;
@@ -134,9 +141,7 @@
     // React to submitting new code.
     $('#formsubmitcode').submit(function() {
         $theForm = $(this);
-        var editorId = $(this).prev().attr('id');
-        var editorNumber = editorId[editorId.length - 1];
-        var editor = editors[editorNumber - 1];
+        var editor = editors[0];
         console.log(editor.getSession().getValue());
         // send xhr request
         $.ajax({
@@ -165,7 +170,7 @@
                 type: "POST",
 				data: {sessionName: $("#sessionName").text()},
                 success: function(data) {
-                    console.log("got data: " + data);
+                    console.log("[poll for active sesion] got data: " + data);
                     mycodebutton = document.getElementById("mycodebutton");
                     newsessionbutton = document.getElementById("newsessionbutton");
 					$("#sessionStatus").text(data)
@@ -180,7 +185,77 @@
                 timeout: 1000
             })
         }, pollForActiveSessionDelay);
+    })();
 
+    // Polling to check for which users are active
+    // in the session.
+    var pollForActiveUsersDelay = 1000;
+    (function pollForActiveUsers() {
+        setTimeout(function() {
+            if ($("#sessionName").text() == "") {
+				setTimeout(pollForActiveUsers, 1000);
+                return;
+			}
+            $.ajax({
+                url: "/readactiveusers/",
+                type: "POST",
+				data: {sessionName: $("#sessionName").text()},
+                success: function(data) {
+                    console.log("got data: " + data);
+                    var i = 0; 
+                    swapbox = document.getElementById("swapbox");
+                    if (data.length > 0) {
+                        // Remove all children of the swapbox.
+                        while (swapbox.firstChild) {
+                            swapbox.removeChild(swapbox.firstChild);
+                        }
+                        users = data.split("\n");
+                        for (i = 0; i < users.length; i++) {
+                            var node = document.createElement("input");
+                            node.value = users[i];
+                            node.setAttribute("class", "btn btn-info");
+                            node.onclick = function (partner) {
+                                return function() {
+                                    console.log("Set partner to: " + partner);
+                                    $("#partnerName").text(partner);
+                                }
+                            }(node.value);
+                            swapbox.appendChild(node);
+                        }
+                    }
+                },
+                complete: pollForActiveUsers,
+                timeout: 1000
+            })
+        }, pollForActiveUsersDelay);
+    })();
+
+    var pollForPartnerCodeDelay = 1000;
+    (function pollForPartnerCode() {
+        setTimeout(function() {
+            if ($("#sessionName").text() == "") {
+				setTimeout(pollForPartnerCode, 1000);
+                return;
+            }
+
+            var editor = editors[0];
+            var partnerEditor = editors[1];
+            var myCode = editor.getSession().getValue();
+
+            $.ajax({
+                url: "/readpartnercode/",
+                type: "POST",
+                data: {sessionName: $("#sessionName").text(),
+                       userName: $("#userName").text(),
+                       userCode: myCode,
+                       partnerName: $("#partnerName").text()},
+                success: function(data) {
+                    partnerEditor.getSession().setValue(data);
+                },
+                complete: pollForPartnerCode,
+                timeout: pollForPartnerCodeDelay
+            })
+        }, pollForPartnerCodeDelay);
     })();
 
     var seqNum = 0;
@@ -227,7 +302,7 @@
                     }
                 },
                 complete: pollForExecutedCode,
-                timeout: 1000
+                timeout: pollForExecutedCodeDelay
             })
         }, pollForExecutedCodeDelay);
     })();

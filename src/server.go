@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,10 @@ type ioMapWriteRequest struct {
 	output string // Output from running process
 }
 
+type userInfo struct {
+	userCode string // Code currently being typed by user.
+}
+
 /*
 Details the information contained in a single python session, shared by a small group
 of users. Also contains all necessary channels for interacting with the master of
@@ -51,6 +56,7 @@ type PythonSession struct {
 	errPipe             io.ReadCloser
 	cmd                 *exec.Cmd
 	ioNumber            int                     // Current index into ioMap. Starts at zero.
+	userMap             map[string]*userInfo    // Map of all users.
 	ioMap               map[int]string          // Map of all input/output/errors
 	chMasterReady       chan bool               // OUTPUT : Written to by master when ready to execute.
 	chExecuteCode       chan string             // INPUT : Channel of "please execute this code"
@@ -80,7 +86,7 @@ var (
 	addr          = flag.Bool("addr", false, "find open address and print to final-port.txt")
 	gopath        = os.Getenv("GOPATH")
 	webpagesDir   = gopath + "webpages/"
-	validPath     = regexp.MustCompile("^/(readsessionactive|readexecutedcode|executecode|edit|resetsession|joinsession)/([a-zA-Z0-9]*)$")
+	validPath     = regexp.MustCompile("^/(readactiveusers|readpartnercode|readsessionactive|readexecutedcode|executecode|edit|resetsession|joinsession)/([a-zA-Z0-9]*)$")
 	sessionMap    = make(map[string]*PythonSession)
 	configuration = new(Configuration)
 	serverId      = -1
@@ -233,7 +239,6 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Trying to execute: ", codeToExecute)
 
-	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
 	session := sessionMap[sessionName]
 	if session == nil {
 		return
@@ -294,13 +299,50 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func readsessionactiveHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
 	sessionName := r.FormValue("sessionName")
 	session := sessionMap[sessionName]
 	if session != nil && session.cmd != nil {
 		fmt.Fprintf(w, "ACTIVE")
 	} else {
 		fmt.Fprintf(w, "DEAD")
+	}
+}
+
+func readactiveusersHandler(w http.ResponseWriter, r *http.Request) {
+	sessionName := r.FormValue("sessionName")
+	session := sessionMap[sessionName]
+	if session != nil && session.cmd != nil {
+		users := []string{}
+		for user := range session.userMap {
+			users = append(users, user)
+		}
+		sort.Strings(users)
+		fmt.Fprintf(w, strings.Join(users, "\n"))
+	} else {
+		fmt.Fprintf(w, "")
+	}
+}
+
+/*
+Sets AND gets user + partner code.
+TODO: Multicast user code between all servers.
+*/
+func readpartnercodeHandler(w http.ResponseWriter, r *http.Request) {
+	sessionName := r.FormValue("sessionName")
+	userName := r.FormValue("userName")
+	userCode := r.FormValue("userCode")
+	partnerName := r.FormValue("partnerName")
+
+	// TODO SECURITY.
+	session := sessionMap[sessionName]
+	if session != nil && session.cmd != nil {
+		session.userMap[userName].userCode = userCode
+		userInfo := session.userMap[partnerName]
+		if userInfo == nil {
+			fmt.Fprintf(w, "")
+		} else {
+			fmt.Fprintf(w, userInfo.userCode)
+		}
 	}
 }
 
@@ -380,6 +422,7 @@ func createSession() *PythonSession {
 	session.chRequestIoNumber = make(chan int)
 	session.chResponseIoNumber = make(chan *ioNumberResponse)
 	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
+	session.userMap = make(map[string]*userInfo)
 
 	fmt.Println("Created a new process: ")
 	session.inPipe, err = session.cmd.StdinPipe()
@@ -417,17 +460,30 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 	if redirectToCorrectSession(sessionName, w, r) {
 		return
 	}
+	newCoderName := r.FormValue("newCoderName")
+	// "\n" used as separator when returning list of users later.
+	newCoderName = strings.Replace(newCoderName, "\n", " ", -1)
 	fmt.Println("JOIN SESSION " + sessionName)
 	session := sessionMap[sessionName]
 	if session == nil {
 		sessionMap[sessionName] = createSession()
 	}
-	fmt.Fprintf(w, "SUCCESS")
+	session = sessionMap[sessionName]
+	if _, ok := session.userMap[newCoderName]; ok {
+		// User already exists here.
+		fmt.Fprintf(w, "FAILURE")
+	} else {
+		// TODO Multicast list of active users.
+		session.userMap[newCoderName] = &userInfo{}
+		// TODO Should there be a timeout / removal mechanism for inactive users?
+		fmt.Fprintf(w, "SUCCESS")
+	}
 }
 
 func waitForSessionDeath(s *PythonSession) {
 	s.cmd.Wait()
 	// TODO Possibly handle closing channels? We don't want any stuck goroutines.
+	// TODO Remove global refs (garbage collecting)
 }
 
 func handleSessionOutput(s *PythonSession) {
@@ -584,6 +640,8 @@ func main() {
 	http.HandleFunc("/executecode/", makeHandler(executecodeHandler))
 	http.HandleFunc("/readexecutedcode/", makeHandler(readexecutedcodeHandler))
 	http.HandleFunc("/readsessionactive/", makeHandler(readsessionactiveHandler))
+	http.HandleFunc("/readactiveusers/", makeHandler(readactiveusersHandler))
+	http.HandleFunc("/readpartnercode/", makeHandler(readpartnercodeHandler))
 	http.HandleFunc("/joinsession/", makeHandler(joinsessionHandler))
 	http.HandleFunc("/resetsession/", makeHandler(resetsessionHandler))
 
