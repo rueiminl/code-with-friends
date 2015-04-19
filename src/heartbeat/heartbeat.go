@@ -13,8 +13,51 @@ func CheckError(err error) {
 	}
 }
 
+type Heartbeat struct {
+	from map[string]string // key=ip:port; value: name
+	to []string // ip:port
+	socket *net.UDPConn
+}
+
+func (this *Heartbeat) Initialize(host string) {
+	addr, err := net.ResolveUDPAddr("udp", host)
+	CheckError(err)
+	this.socket, err = net.ListenUDP("udp", addr)
+	CheckError(err)
+}
+
+func (this *Heartbeat) SendTo(host string) {
+	addr, err := net.ResolveUDPAddr("udp", host)
+	CheckError(err)
+	this.socket.WriteToUDP([]byte("hello"), addr)
+}
+
+func (this *Heartbeat) RecvFrom() {
+	buf := make([]byte, 1024)
+	n, addr, err := this.socket.ReadFromUDP(buf)
+    if err != nil {
+        fmt.Println("Error: ",err)
+    } 
+	fmt.Println("Received", n, "bytes:", string(buf[0:n]), "from", addr)
+}
+
+
+
 func main() {
-	fmt.Println("hello world!")
+	heartbeat_sample()
+	udp_sample()
+}
+
+func heartbeat_sample() {
+	h1 := new(Heartbeat)
+	h1.Initialize("127.0.0.1:10002")
+	h2 := new(Heartbeat)
+	h2.Initialize("127.0.0.1:10003")
+	h1.SendTo("127.0.0.1:10003")
+	h2.RecvFrom()
+}
+
+func udp_sample() {
 	server_addr, err := net.ResolveUDPAddr("udp", ":10001")
 	CheckError(err)
 
@@ -29,8 +72,8 @@ func main() {
 	CheckError(err)
 	defer conn_at_client.Close()
 	
-	msg := []byte("hello")
-	_ , err = conn_at_client.Write(msg)
+	// msg := []byte("hello")
+	_ , err = conn_at_client.Write([]byte("hello"))
 	if err != nil {
         fmt.Println("Error", err)
 	}
@@ -42,4 +85,3 @@ func main() {
     } 
 	fmt.Println("Received", n, "bytes:", string(buf[0:n]), "from", addr)
 }
-
