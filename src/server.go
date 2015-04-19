@@ -247,7 +247,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	// ... and send that code to the master to be written to the session.
 	if (masterId == -1) || (masterId == serverId) {
 		// In this case, we ARE the master.
-		mi := &multicaster.MessageInfo{sessionName, codeToExecute, serverId}
+		mi := multicaster.MessageInfo{sessionName, codeToExecute, serverId}
 		mutex.Lock()
 		if caster.Multicast(mi, 5) {
 			fmt.Println("Multicast code to session SUCCESS")
