@@ -41,6 +41,15 @@ func (this *Heartbeat) Initialize(host string, from []string, to []string) {
 	CheckError(err)
 	this.socket, err = net.ListenUDP("udp", addr)
 	CheckError(err)
+	this.mutex = new(sync.Mutex)
+	this.dead = make(chan string, DEAD_BUFFER)
+	this.Update(from, to)
+	go this.RecvFrom()
+	go this.SendTo()
+}
+
+func (this *Heartbeat) Update(from []string, to []string) {
+	this.mutex.Lock()
 	this.from = from
 	this.to = make([]*net.UDPAddr, len(to))
 	for i, host := range to {
@@ -48,20 +57,18 @@ func (this *Heartbeat) Initialize(host string, from []string, to []string) {
 		CheckError(err)
 		this.to[i] = addr
 	}
-	this.mutex = new(sync.Mutex)
 	this.ts = make(map[string]time.Time)
-	this.dead = make(chan string, DEAD_BUFFER)
 	for _,src := range this.from {
 		this.ts[src] = time.Now()
 	}
-	go this.RecvFrom()
-	go this.SendTo()
+	this.mutex.Unlock()
 }
 
 func (this *Heartbeat) SendTo() {
 	ticker := time.NewTicker(time.Second * HEARTBEAT_TIMEOUT)
 	for t := range ticker.C {
 		// sendout
+		this.mutex.Lock()
 		for _, addr := range this.to {
 			this.socket.WriteToUDP([]byte(this.host), addr)
 			fmt.Println(this.host, "send heartbeat to", addr.String(), "at", t)
@@ -77,6 +84,7 @@ func (this *Heartbeat) SendTo() {
 				this.dead <- host
 			}
 		}
+		this.mutex.Unlock()
 	}
 }
 
@@ -89,12 +97,14 @@ func (this *Heartbeat) RecvFrom() {
 		} 
 		from := string(buf[0:n])
 		fmt.Println(this.host, "receive heartbeat from", from)
+		this.mutex.Lock()
 		if _, ok := this.ts[from]; ok {
 			this.ts[from] = time.Now()
 			fmt.Println("update ts[", from, "] = ", this.ts[from])
 		} else {
 			fmt.Println("receive heartbeat from unknown host...")
 		}
+		this.mutex.Unlock()
 	}
 }
 
@@ -114,5 +124,7 @@ func main() {
 	for {
 		dead := <-deadChan
 		fmt.Println(dead)
+		updated_slave_addrs := []string{slave1_addr}
+		master_heartbeat.Update(updated_slave_addrs, updated_slave_addrs)
 	}
 }
