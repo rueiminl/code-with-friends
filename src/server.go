@@ -97,6 +97,88 @@ var (
 )
 
 /*
+ElectionMsg:
+    map -> If slave id not in map, join the election by add into the map and set the value to 'false'.
+    	   If slave id is in the map, and map[id] = false, set masterId = newMasterId
+    	   If slave id is in the map and value equals to true, finish election.
+
+   	newMasterId -> Initialize as -1, and after first round, pick the largest number in the map.
+*/
+type ElectionMsg struct{
+	masterSelectSet map[int]bool
+	newMasterId int
+}
+
+/* 
+If the master die(slaves will not receive heartbeat from master),
+slaves will check if they're qualified to raise the master Election
+*/
+func qualifiedToRaise(id int, master int, m map[int]int) bool{
+	if value, ok := m[id]; ok {
+		if value == master {
+			updateLinkedMap(master, m)
+			raiseElection(id)
+			return true
+		}
+	}
+	return false
+}
+
+/*
+If the slave is qalified to raise an election, call this function
+This function will initiallize the election message, and pass through the ring
+*/
+func raiseElection(id int) {
+	msg := new(ElectionMsg)
+	msg.masterSelectSet = make(map[int]bool)
+	msg.newMasterId = -1
+	msg.masterSelectSet[id] = false
+	// TODO: pass message to the next element in the link
+}
+
+/*
+
+*/
+func readElectionMsg(id int, msg ElectionMsg){
+	if value, ok := msg.masterSelectSet[id]; ok {
+		if value == true {
+			fmt.Println("Election finished")
+			// Everyone knew who the master is, stop election.
+		} else{
+			msg.masterSelectSet[id] = true
+			if msg.newMasterId == -1{
+				for key, _ := range msg.masterSelectSet {
+					if msg.newMasterId < key {
+						msg.newMasterId = key
+					}
+				}
+			}
+			// TODO: Set our new master
+			masterId = msg.newMasterId
+			// TODO: Pass to next node
+
+		}
+	} else{
+		// First round election
+		msg.masterSelectSet[id] = false
+		// TODO: send to next node(via linked map list)
+	}
+}
+
+/*
+If some node die, update the linked map list.
+*/
+func updateLinkedMap(id int, m map[int]int){
+	for key, value := range m {
+		if value == id {
+			m[key] = m[id]
+			delete(m, id)
+			break
+		}
+	}
+}
+
+/*
 Function which renders the HTML page requested.
 */
 func renderTemplate(w http.ResponseWriter, tmpl string) {
