@@ -246,13 +246,13 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ... and send that code to the master to be written to the session.
-	if (masterId == -1) || (masterId == serverId) {
+	if (masterId == serverId) { // (masterId == -1) should not happen
 		// In this case, we ARE the master.
 		mi := multicaster.MessageInfo{sessionName, codeToExecute, serverId}
 		mutex.Lock()
 		if caster.Multicast(sessionName, mi, 5) {
 			fmt.Println("Multicast code to session SUCCESS")
-			masterId = serverId
+			// masterId = serverId
 			sendExecuteRequestToSessionMaster(session, codeToExecute)
 		} else {
 			fmt.Println("Multicast code to session FAILURE")
@@ -559,10 +559,12 @@ func receiveMulticast(sessionName string) {
 	ch := caster.GetMessageChan(sessionName)
 	for {
 		mi := <-ch
+		/* // should not happen
 		if masterId == -1 {
 			fmt.Printf("Multicast received: Setting master to %d\n", mi.MasterId)
 			masterId = mi.MasterId
 		}
+		*/
 		sessionName := mi.SessionName
 		session := sessionMap[sessionName]
 		if session == nil {
@@ -607,6 +609,7 @@ func main() {
 			mapElection[i] = i + 1
 		}
 	}
+	masterId = len(configuration.Servers) - 1
 
 	// search serverName in configuration
 		for i, server := range configuration.Servers {
