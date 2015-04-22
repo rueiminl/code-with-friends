@@ -121,6 +121,10 @@ func qualifiedToRaise(id int, master int, m map[int]int) bool{
 			return true
 		}
 	}
+	else{
+		// Only one node remains in the group
+		masterId = id
+	}
 	return false
 }
 
@@ -129,17 +133,18 @@ If the slave is qalified to raise an election, call this function
 This function will initiallize the election message, and pass through the ring
 */
 func raiseElection(id int) {
-	msg := new(ElectionMsg)
+	msg := new(multicaster.ElectionMsg)
 	msg.masterSelectSet = make(map[int]bool)
 	msg.newMasterId = -1
 	msg.masterSelectSet[id] = false
 	// TODO: pass message to the next element in the link
+	//caster.sendMessage()
 }
 
 /*
 
 */
-func readElectionMsg(id int, msg ElectionMsg){
+func readElectionMsg(id int, msg multicaster.ElectionMsg){
 	if value, ok := msg.masterSelectSet[id]; ok {
 		if value == true {
 			fmt.Println("Election finished")
@@ -171,8 +176,12 @@ If some node die, update the linked map list.
 func updateLinkedMap(id int, m map[int]int){
 	for key, value := range m {
 		if value == id {
-			m[key] = m[id]
-			delete(m, id)
+			if len(m) != 1{
+				m[key] = m[id]
+				delete(m, id)
+			} else {
+				delete(m, key)
+			}
 			break
 		}
 	}
