@@ -104,16 +104,16 @@ ElectionMsg:
 
    	newMasterId -> Initialize as -1, and after first round, pick the largest number in the map.
 */
-type ElectionMsg struct{
+type ElectionMsg struct {
 	masterSelectSet map[int]bool
-	newMasterId int
+	newMasterId     int
 }
 
-/* 
+/*
 If the master die(slaves will not receive heartbeat from master),
 slaves will check if they're qualified to raise the master Election
 */
-func qualifiedToRaise(id int, master int, m map[int]int) bool{
+func qualifiedToRaise(id int, master int, m map[int]int) bool {
 	if value, ok := m[id]; ok {
 		if value == master {
 			updateLinkedMap(master, m)
@@ -139,14 +139,14 @@ func raiseElection(id int) {
 /*
 
 */
-func readElectionMsg(id int, msg ElectionMsg){
+func readElectionMsg(id int, msg ElectionMsg) {
 	if value, ok := msg.masterSelectSet[id]; ok {
 		if value == true {
 			fmt.Println("Election finished")
 			// Everyone knew who the master is, stop election.
-		} else{
+		} else {
 			msg.masterSelectSet[id] = true
-			if msg.newMasterId == -1{
+			if msg.newMasterId == -1 {
 				for key, _ := range msg.masterSelectSet {
 					if msg.newMasterId < key {
 						msg.newMasterId = key
@@ -158,7 +158,7 @@ func readElectionMsg(id int, msg ElectionMsg){
 			// TODO: Pass to next node
 
 		}
-	} else{
+	} else {
 		// First round election
 		msg.masterSelectSet[id] = false
 		// TODO: send to next node(via linked map list)
@@ -168,7 +168,7 @@ func readElectionMsg(id int, msg ElectionMsg){
 /*
 If some node die, update the linked map list.
 */
-func updateLinkedMap(id int, m map[int]int){
+func updateLinkedMap(id int, m map[int]int) {
 	for key, value := range m {
 		if value == id {
 			m[key] = m[id]
@@ -331,7 +331,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 		// In this case, we ARE the master.
 		mi := multicaster.MessageInfo{sessionName, codeToExecute, serverId}
 		mutex.Lock()
-		if caster.Multicast(&mi, 5) {
+		if caster.Multicast(sessionName, mi, 5) {
 			fmt.Println("Multicast code to session SUCCESS")
 			masterId = serverId
 			sendExecuteRequestToSessionMaster(session, codeToExecute)
@@ -549,6 +549,7 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 	session := sessionMap[sessionName]
 	if session == nil {
 		sessionMap[sessionName] = createSession()
+		go receiveMulticast(sessionName)
 	}
 	session = sessionMap[sessionName]
 	if _, ok := session.userMap[newCoderName]; ok {
@@ -634,8 +635,9 @@ func showConfiguration() {
 
 }
 
-func receiveMulticast() {
-	ch := caster.GetMessageChan()
+// TODO Maybe update master? We're changing the session map.
+func receiveMulticast(sessionName string) {
+	ch := caster.GetMessageChan(sessionName)
 	for {
 		mi := <-ch
 		if masterId == -1 {
@@ -713,7 +715,6 @@ func main() {
 		}
 	}
 	// debug only
-	go receiveMulticast()
 	showConfiguration()
 
 	flag.Parse()
