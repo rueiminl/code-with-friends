@@ -4,6 +4,14 @@ import (
     "fmt"
 	"net"
 	"os"
+	"time"
+	"sync"
+)
+
+const (
+	DEAD_TIMEOUT = 90
+	HEARTBEAT_TIMEOUT = 30
+	DEAD_BUFFER = 3
 )
 
 func CheckError(err error) {
@@ -14,74 +22,94 @@ func CheckError(err error) {
 }
 
 type Heartbeat struct {
-	from map[string]string // key=ip:port; value: name
-	to []string // ip:port
+	from []string // ip:port
+	to []string   // ip:port
+	host string
 	socket *net.UDPConn
+	ts map[string]time.Time
+	mutex *sync.Mutex
+	dead chan string
 }
 
-func (this *Heartbeat) Initialize(host string) {
+func (this *Heartbeat) GetDeadChan() chan string {
+	return this.dead
+}
+
+func (this *Heartbeat) Initialize(host string, from []string, to []string) {
+	this.host = host
 	addr, err := net.ResolveUDPAddr("udp", host)
 	CheckError(err)
 	this.socket, err = net.ListenUDP("udp", addr)
 	CheckError(err)
+	this.from = from
+	this.to = to
+	this.mutex = new(sync.Mutex)
+	this.ts = make(map[string]time.Time)
+	this.dead = make(chan string, DEAD_BUFFER)
+	for _,dst := range this.to {
+		this.ts[dst] = time.Now()
+	}
+	go this.RecvFrom()
+	go this.SendTo()
 }
 
-func (this *Heartbeat) SendTo(host string) {
-	addr, err := net.ResolveUDPAddr("udp", host)
-	CheckError(err)
-	this.socket.WriteToUDP([]byte("hello"), addr)
+func (this *Heartbeat) SendTo() {
+	ticker := time.NewTicker(time.Second * HEARTBEAT_TIMEOUT)
+	for t := range ticker.C {
+		// sendout
+		for _, host := range this.to {
+			addr, err := net.ResolveUDPAddr("udp", host)
+			CheckError(err)
+			this.socket.WriteToUDP([]byte(this.host), addr)
+			fmt.Println(this.host, "send heartbeat to", host, "at", t)
+		}
+		
+		// check if dead
+		for _, host := range this.from {
+			if _, ok := this.ts[host]; !ok {
+				fmt.Println("ERROR: this should never happen if Initialize correctly!")
+			}
+			if time.Now().After(this.ts[host].Add(time.Second * DEAD_TIMEOUT)) {
+				fmt.Println("Dead Detected!", host)
+				this.dead <- host
+			}
+		}
+	}
 }
 
 func (this *Heartbeat) RecvFrom() {
-	buf := make([]byte, 1024)
-	n, addr, err := this.socket.ReadFromUDP(buf)
-    if err != nil {
-        fmt.Println("Error: ",err)
-    } 
-	fmt.Println("Received", n, "bytes:", string(buf[0:n]), "from", addr)
+	buf := make([]byte, 32)
+	for {
+		n, _, err := this.socket.ReadFromUDP(buf)
+		if err != nil {
+			fmt.Println("Error in heartbeat.RecvFrom: ",err)
+		} 
+		from := string(buf[0:n])
+		fmt.Println(this.host, "receive heartbeat from", from)
+		if _, ok := this.ts[from]; ok {
+			this.ts[from] = time.Now()
+			fmt.Println("update ts[", from, "] = ", this.ts[from])
+		} else {
+			fmt.Println("receive heartbeat from unknown host...")
+		}
+	}
 }
-
-
 
 func main() {
-	heartbeat_sample()
-	udp_sample()
-}
-
-func heartbeat_sample() {
-	h1 := new(Heartbeat)
-	h1.Initialize("127.0.0.1:10002")
-	h2 := new(Heartbeat)
-	h2.Initialize("127.0.0.1:10003")
-	h1.SendTo("127.0.0.1:10003")
-	h2.RecvFrom()
-}
-
-func udp_sample() {
-	server_addr, err := net.ResolveUDPAddr("udp", ":10001")
-	CheckError(err)
-
-	conn_at_server, err := net.ListenUDP("udp", server_addr)
-	CheckError(err)
-	defer conn_at_server.Close()
-	
-	client_addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	CheckError(err)
-	
-	conn_at_client, err := net.DialUDP("udp", client_addr, server_addr)
-	CheckError(err)
-	defer conn_at_client.Close()
-	
-	// msg := []byte("hello")
-	_ , err = conn_at_client.Write([]byte("hello"))
-	if err != nil {
-        fmt.Println("Error", err)
+	master_addr := "127.0.0.1:10001"
+	slave1_addr := "127.0.0.1:10002"
+	slave2_addr := "127.0.0.1:10003"
+	master_addrs := []string{master_addr}
+	slave_addrs := []string{slave1_addr, slave2_addr}
+	master_heartbeat := new(Heartbeat)
+	master_heartbeat.Initialize(master_addr, slave_addrs, slave_addrs)
+	slave1_heartbeat := new(Heartbeat)
+	slave1_heartbeat.Initialize(slave1_addr, master_addrs, master_addrs)
+	// slave2_heartbeat := new(Heartbeat)
+	// slave2_heartbeat.Initialize(slave2_addr, master_addrs, master_addrs)
+	deadChan := master_heartbeat.GetDeadChan()
+	for {
+		dead := <-deadChan
+		fmt.Println(dead)
 	}
-	
-	buf := make([]byte, 1024)
-	n, addr, err := conn_at_server.ReadFromUDP(buf)
-    if err != nil {
-        fmt.Println("Error: ",err)
-    } 
-	fmt.Println("Received", n, "bytes:", string(buf[0:n]), "from", addr)
 }
