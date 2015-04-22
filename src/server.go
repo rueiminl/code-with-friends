@@ -94,6 +94,7 @@ var (
 	groupId       = -1 // TODO SET FROM CONF. REDIRECT.
 	caster        = new(multicaster.Multicaster)
 	mutex         = &sync.Mutex{}
+	mapElection   = make(map[int]int)
 )
 
 /*
@@ -679,9 +680,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	
+	// initialize mapElection by Servers
+	for i, _ := range configuration.Servers {
+		if i == len(configuration.Servers) - 1 {
+			mapElection[i] = 0
+		} else {
+			mapElection[i] = i + 1
+		}
+	}
 
 	// search serverName in configuration
-	for i, server := range configuration.Servers {
+		for i, server := range configuration.Servers {
 		if serverName == server.Name {
 			serverId = i
 			break
