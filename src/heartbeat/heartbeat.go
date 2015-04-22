@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	DEAD_TIMEOUT = 90
-	HEARTBEAT_TIMEOUT = 30
+	DEAD_TIMEOUT = 5
+	HEARTBEAT_TIMEOUT = 1
 	DEAD_BUFFER = 3
 )
 
@@ -58,9 +58,6 @@ func (this *Heartbeat) Update(from []string, to []string) {
 		this.to[i] = addr
 	}
 	this.ts = make(map[string]time.Time)
-	for _,src := range this.from {
-		this.ts[src] = time.Now()
-	}
 	this.mutex.Unlock()
 }
 
@@ -75,13 +72,10 @@ func (this *Heartbeat) SendTo() {
 		}
 		
 		// check if dead
-		for _, host := range this.from {
-			if _, ok := this.ts[host]; !ok {
-				fmt.Println("ERROR: this should never happen if Initialize correctly!")
-			}
-			if time.Now().After(this.ts[host].Add(time.Second * DEAD_TIMEOUT)) {
-				fmt.Println("Dead Detected!", host)
-				this.dead <- host
+		for from, ts := range this.ts {
+			if time.Now().After(ts.Add(time.Second * DEAD_TIMEOUT)) {
+				fmt.Println("Dead Detected!", from)
+				this.dead <- from
 			}
 		}
 		this.mutex.Unlock()
@@ -98,12 +92,8 @@ func (this *Heartbeat) RecvFrom() {
 		from := string(buf[0:n])
 		fmt.Println(this.host, "receive heartbeat from", from)
 		this.mutex.Lock()
-		if _, ok := this.ts[from]; ok {
-			this.ts[from] = time.Now()
-			fmt.Println("update ts[", from, "] = ", this.ts[from])
-		} else {
-			fmt.Println("receive heartbeat from unknown host...")
-		}
+		this.ts[from] = time.Now()
+		fmt.Println("update ts[", from, "] = ", this.ts[from])
 		this.mutex.Unlock()
 	}
 }
@@ -112,6 +102,7 @@ func main() {
 	master_addr := "127.0.0.1:10001"
 	slave1_addr := "127.0.0.1:10002"
 	slave2_addr := "127.0.0.1:10003"
+		
 	master_addrs := []string{master_addr}
 	slave_addrs := []string{slave1_addr, slave2_addr}
 	master_heartbeat := new(Heartbeat)
@@ -120,6 +111,16 @@ func main() {
 	slave1_heartbeat.Initialize(slave1_addr, master_addrs, master_addrs)
 	// slave2_heartbeat := new(Heartbeat)
 	// slave2_heartbeat.Initialize(slave2_addr, master_addrs, master_addrs)
+
+	time.Sleep(time.Second * 3)
+	master_udpaddr, err := net.ResolveUDPAddr("udp", master_addr)
+	CheckError(err)
+	slave2_udpaddr, err := net.ResolveUDPAddr("udp", slave2_addr)
+	CheckError(err)
+	socket2, err := net.ListenUDP("udp", slave2_udpaddr)
+	CheckError(err)
+	socket2.WriteToUDP([]byte(slave2_addr), master_udpaddr)
+	
 	deadChan := master_heartbeat.GetDeadChan()
 	for {
 		dead := <-deadChan
