@@ -19,7 +19,7 @@ type Multicaster struct{
 	passer PasserRPC
 	ackChans map[string]chan string
 	messageChans map[string]chan MessageInfo
-	// singleMChans chan MessageInfo
+	emChan chan ElectionMsg
 }
 
 /*to recieve a Message from another node
@@ -29,14 +29,14 @@ type Multicaster struct{
 * it has recieved acks from all the other nodes(except itself and the sending node)
 */
 func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
-	info := MessageInfo{"", "", 0}
+	info := MessageInfo{}
 	sName := message.Session
-	if message.Type == "message" {
+	if message.Type == "election"{
 		*reply = "ack"
-		//fmt.Println("sName: " + sName)
-		//fmt.Println(len(this.owner.sessionMembers));
+		this.owner.emChan <- message.Em
+	} else if message.Type == "message" {
+		*reply = "ack"
 		memMap := this.owner.members
-		//fmt.Println("1")
 		for key := range memMap {
 			//skip on sending message to itself and the sending node
 			if key == "#" || key == message.Source{
@@ -44,7 +44,7 @@ func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 			}
 
 			addr := memMap[key]
-			go this.owner.sendMessage(sName, addr, info, "ackR")
+			go this.owner.sendMessage(sName, addr, info, ElectionMsg{}, "ackR")
 		}
 		//fmt.Println("2")
 		l := len(memMap)
@@ -56,7 +56,7 @@ func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 		//deliver message
 		this.owner.messageChans[sName] <- message.Content
 		//send ack to the sending node to confirm that it has received the message
-		go this.owner.sendMessage(sName, message.Source, info, "ackS")
+		go this.owner.sendMessage(sName, message.Source, info, ElectionMsg{}, "ackS")
 		//fmt.Println("3")
 	} else if message.Type == "ackR"{
 		this.ackChans[sName] <- "ack"
@@ -87,14 +87,14 @@ func (this *Multicaster) portListenner(port string){
 * send out the message to a single node,
 * the return value is the reply from the dest node
 */
-func (this *Multicaster) sendMessage(sName string, dest string, info MessageInfo, mType string) string {
+func (this *Multicaster) sendMessage(sName string, dest string, info MessageInfo, em ElectionMsg, mType string) string {
 	c, err := rpc.Dial("tcp", dest)
     if err != nil {
         fmt.Println(err)
         return ""
     }
     var result string
-    message := Message{this.members["#"], dest, info, mType, sName}
+    message := Message{this.members["#"], dest, info, em, mType, sName}
     err = c.Call("PasserRPC.ReceiveMessage", message, &result)
     //fmt.Println(result)
     if err != nil {
@@ -113,6 +113,7 @@ func (this *Multicaster) Initialize(newPort string){
 	this.passer.ackChans = make(map[string]chan string)
 	this.ackChans = make(map[string]chan string)
 	this.messageChans = make(map[string]chan MessageInfo)
+	this.emChan = make(chan ElectionMsg, 1024)
 	this.members = make(map[string]string)
 	this.members["#"] = "127.0.0.1:" + this.port
 	go this.portListenner(":" + this.port)
@@ -142,9 +143,9 @@ func (this *Multicaster) GetMessageChan(sName string) chan MessageInfo{
 	return this.messageChans[sName]
 }
 
-// func (this *Multicaster) GetSingleMChan() chan MessageInfo{
-// 	return this.singleMChans
-// }
+func (this *Multicaster) GetEmChan() chan ElectionMsg{
+	return this.emChan;
+}
 
 /*
 * the blocking reliable multicast
@@ -162,19 +163,23 @@ func (this *Multicaster) Multicast(sName string, info MessageInfo, timeout int) 
 		}
 
 		addr := this.members[key]
-		go this.sendMessage(sName, addr, info, "message")
+		go this.sendMessage(sName, addr, info, ElectionMsg{}, "message")
 	}
 
 	l := len(this.members)
 	for i := 0; i < l - 1; i++ {
 		select {
 			case <- this.ackChans[sName]:
-				fmt.Println("get one")
+				//fmt.Println("get one")
 			//time out
 			case <- time.After(time.Second * time.Duration(timeout)):
-				fmt.Println("timeout")
+				//fmt.Println("timeout")
 				return false
 		}
 	}
 	return true
+}
+
+func (this *Multicaster) SendElectionMessage(memID string, em ElectionMsg){
+	this.sendMessage("", this.members[memID], MessageInfo{}, em, "election")
 }
