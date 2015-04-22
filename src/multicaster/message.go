@@ -5,6 +5,7 @@ type Message struct {
 	Dest    string
 	Content MessageInfo
 	Type    string
+	Session string
 }
 
 type MessageInfo struct {
