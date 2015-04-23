@@ -293,6 +293,36 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Helper function to multicast START SESSION from MASTER --> REPLICAS
+func multicastStartSession(sessionName string) bool {
+	session := sessionMap[sessionName]
+	if session != nil {
+		// Master: The session already exists -- we multicasted it earlier.
+		fmt.Println("(master): session already exists")
+		return true
+	}
+	mi := multicaster.MessageInfo{}
+	mi.SessionName = "SESSION_CREATOR"
+	mi.CodeToExecute = sessionName
+	mi.MasterId = serverId
+	fmt.Println("(master) : about to multicast StartSession: ", sessionName)
+	if caster.Multicast(sessionName, mi, 5) {
+		fmt.Println("(master) : multicast succeeded.")
+		fmt.Println("(master) : creating new sesion: ", sessionName)
+		session := sessionMap[sessionName]
+		if session == nil {
+			// Master: Create session if we multicasted successfully
+			sessionMap[sessionName] = createSession(sessionName)
+			return true
+		} else {
+			panic("The session was nil, but after multicasting, we made it?")
+		}
+	} else {
+		fmt.Println("(master) : multicast StartSession FAILED")
+	}
+	return false
+}
+
 // Helper function to multicast CODE from MASTER --> REPLICAS
 func multicastCode(s *PythonSession, code, sessionName string) {
 	if masterId != serverId {
@@ -540,6 +570,7 @@ func createSession(name string) *PythonSession {
 	//fmt.Println("about to wait...")
 	go waitForSessionDeath(session)
 	go sessionMaster(session)
+	go receiveMulticast(session.sessionName)
 	return session
 }
 
@@ -565,17 +596,17 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Println("JOIN SESSION " + sessionName)
-	session := sessionMap[sessionName]
-	if session == nil {
-		sessionMap[sessionName] = createSession(sessionName)
-		go receiveMulticast(sessionName)
-	}
-	session = sessionMap[sessionName]
-	fmt.Println("Adding user to session: ", newCoderName)
 	if masterId == serverId {
-		// Master case
-		if multicastUser(session, newCoderName, sessionName) {
-			fmt.Fprintf(w, "SUCCESS")
+		fmt.Println("(master) creating session")
+		// Master case: create the session.
+		if multicastStartSession(sessionName) {
+			fmt.Println("(master) : created session")
+			session := sessionMap[sessionName]
+			// Master case: add the user.
+			if multicastUser(session, newCoderName, sessionName) {
+				fmt.Println("(master) : Adding user to session: ", newCoderName)
+				fmt.Fprintf(w, "SUCCESS")
+			}
 		}
 	} else if masterId != serverId {
 		// Send the request to the master.
@@ -688,6 +719,21 @@ func showConfiguration() {
 	}
 	fmt.Printf("I am %d-th server (%s) in %d-th Group (%s)\n", serverId, configuration.Servers[serverId].Name, groupId, configuration.Groups[groupId].Name)
 
+}
+
+// Function from which REPLICAS create a session.
+func receiveMulticastSessionInitializer() {
+	ch := caster.GetMessageChan("SESSION_CREATOR")
+	for {
+		mi := <-ch
+		fmt.Println("(receive session initializer) New message: ", mi)
+		sessionName := mi.CodeToExecute
+		session := sessionMap[sessionName]
+		if session == nil {
+			// Replica: Create a session only here.
+			sessionMap[sessionName] = createSession(sessionName)
+		}
+	}
 }
 
 /*
@@ -864,6 +910,8 @@ func main() {
 			caster.AddMember(server.Name, server.IP+":"+server.Port)
 		}
 	}
+	caster.AddSession("SESSION_CREATOR")
+	go receiveMulticastSessionInitializer()
 	// debug only
 	showConfiguration()
 	go checkDead()
