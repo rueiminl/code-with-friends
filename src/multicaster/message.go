@@ -3,6 +3,7 @@ package multicaster
 type Message struct {
 	Source  string
 	Dest    string
+	MemToDlt string
 	Content MessageInfo
 	Em 		ElectionMsg
 	Type    string
@@ -11,7 +12,6 @@ type Message struct {
 
 type MessageInfo struct {
 	SessionName   string
-	UserName      string
 	CodeToExecute string
 	MasterId      int
 }
