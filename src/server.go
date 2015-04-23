@@ -740,17 +740,20 @@ func checkDead() {
 		fmt.Println(dead)
 		deadId := -1
 		if serverId == masterId {
+			// master get a notification that a slave has been dead
 			for i, server := range configuration.Servers {
 				if dead == server.IP+":"+server.Heartbeat {
 					deadId = i
 					break
 				}
 			}
+			caster.RemoveMemInGroup(configuration.Servers[deadId].Name)
 			fmt.Println("UpdateLinkedMap")
 			masterelection.UpdateLinkedMap(deadId, mapElection)
-			
+			// TODO notify slaves to UpdateLinkedMap
 		} else {
-			// slave aware that master has dead
+			// slave get the notification that the master has been dead
+			caster.RemoveMemLocal(configuration.Servers[masterId].Name)
 			fmt.Println("QualifiedToRaise")
 			if masterelection.QualifiedToRaise(serverId, masterId, mapElection, &masterId) {
 				fmt.Println("RaiseElection")
@@ -759,13 +762,11 @@ func checkDead() {
 				for {
 					em := <-electionChan
 					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
-						// TODO notify multicaster
 						break
 					}
 				}
 			}
 			masterelection.UpdateLinkedMap(masterId, mapElection)
-			// TODO notify multicaster
 		}
 	}
 }
