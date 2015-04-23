@@ -20,8 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"heartbeat"
-	"masterelection"
+	"masterselection"
 )
 
 /*
@@ -100,7 +99,7 @@ var (
 	serverId         = -1
 	masterId         = -1
 	groupId          = -1 // TODO SET FROM CONF. REDIRECT.
-	caster           = new(multicaster.Multicaster)
+	caster           = multicaster.Multicaster{}
 	mutex            = &sync.Mutex{}
 	mapElection      = make(map[int]int)
 	heartbeatManager = new(heartbeat.Heartbeat)
@@ -693,9 +692,11 @@ func usage() {
 }
 
 func checkDead() {
+	fmt.Println("checkDead")
 	deadChan := heartbeatManager.GetDeadChan()
 	for {
 		dead := <-deadChan
+		fmt.Println(dead)
 		deadId := -1
 		if serverId == masterId {
 			for i, server := range configuration.Servers {
@@ -704,15 +705,18 @@ func checkDead() {
 					break
 				}
 			}
-			masterelection.updateLinkedMap(deadId, mapElection)
+			fmt.Println("UpdateLinkedMap")
+			masterelection.UpdateLinkedMap(deadId, mapElection)
 		} else {
 			// slave
-			if masterelection.qualifiedToRaised(serverId, masterId, mapElection, &masterId) {
-				masterelection.raiseElection(serverId, caster, mapElection)
+			fmt.Println("QualifiedToRaise")
+			if masterelection.QualifiedToRaise(serverId, masterId, mapElection, &masterId) {
+				fmt.Println("RaiseElection")
+				masterelection.RaiseElection(serverId, caster, mapElection)
 				electionChan := caster.GetEmChan()
 				for {
-					message := <-electionChan
-					if masterelection.readElectionMsg(serverId, message.Em, caster, mapElection, &masterId) {
+					em := <-electionChan
+					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
 						break
 					}
 				}
