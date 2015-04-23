@@ -14,7 +14,7 @@ const (
 	DEAD_BUFFER = 3
 )
 
-func CheckError(err error) {
+func checkError(err error) {
 	if err != nil {
 		fmt.Println("Error", err)
 		os.Exit(0)
@@ -38,14 +38,14 @@ func (this *Heartbeat) GetDeadChan() chan string {
 func (this *Heartbeat) Initialize(host string, from []string, to []string) {
 	this.host = host
 	addr, err := net.ResolveUDPAddr("udp", host)
-	CheckError(err)
+	checkError(err)
 	this.socket, err = net.ListenUDP("udp", addr)
-	CheckError(err)
+	checkError(err)
 	this.mutex = new(sync.Mutex)
 	this.dead = make(chan string, DEAD_BUFFER)
 	this.Update(from, to)
-	go this.RecvFrom()
-	go this.SendTo()
+	go this.recvFrom()
+	go this.sendTo()
 }
 
 func (this *Heartbeat) Update(from []string, to []string) {
@@ -54,14 +54,14 @@ func (this *Heartbeat) Update(from []string, to []string) {
 	this.to = make([]*net.UDPAddr, len(to))
 	for i, host := range to {
 		addr, err := net.ResolveUDPAddr("udp", host)
-		CheckError(err)
+		checkError(err)
 		this.to[i] = addr
 	}
 	this.ts = make(map[string]time.Time)
 	this.mutex.Unlock()
 }
 
-func (this *Heartbeat) SendTo() {
+func (this *Heartbeat) sendTo() {
 	ticker := time.NewTicker(time.Second * HEARTBEAT_TIMEOUT)
 	for _ = range ticker.C {
 		// sendout
@@ -75,6 +75,7 @@ func (this *Heartbeat) SendTo() {
 		for from, ts := range this.ts {
 			if time.Now().After(ts.Add(time.Second * DEAD_TIMEOUT)) {
 				fmt.Println("Dead Detected!", from)
+				delete(this.ts, from)
 				this.dead <- from
 			}
 		}
@@ -82,7 +83,7 @@ func (this *Heartbeat) SendTo() {
 	}
 }
 
-func (this *Heartbeat) RecvFrom() {
+func (this *Heartbeat) recvFrom() {
 	buf := make([]byte, 32)
 	for {
 		n, _, err := this.socket.ReadFromUDP(buf)
@@ -116,11 +117,11 @@ func sampleTest() {
 	// need receive at least one notification (packet) to start detection
 	time.Sleep(time.Second * 3)
 	master_udpaddr, err := net.ResolveUDPAddr("udp", master_addr)
-	CheckError(err)
+	checkError(err)
 	slave2_udpaddr, err := net.ResolveUDPAddr("udp", slave2_addr)
-	CheckError(err)
+	checkError(err)
 	socket2, err := net.ListenUDP("udp", slave2_udpaddr)
-	CheckError(err)
+	checkError(err)
 	socket2.WriteToUDP([]byte(slave2_addr), master_udpaddr)
 	
 	deadChan := master_heartbeat.GetDeadChan()

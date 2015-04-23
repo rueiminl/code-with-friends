@@ -20,7 +20,7 @@ slaves will check if they're qualified to raise the master Election
 func QualifiedToRaise(id int, master int, m map[int]int, masterId *int) bool{
 	if value, ok := m[id]; ok {
 		if value == master {
-			UpdateLinkedMap(master, m)
+			// UpdateLinkedMap(master, m)
 			if len(m) == 1 {
 				*masterId = id
 				fmt.Println("You are now the only one remain in the server")
@@ -84,6 +84,9 @@ func UpdateLinkedMap(id int, m map[int]int){
 			delete(m, id)
 			break
 		}
+	}
+	for key, value := range m{
+		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
 	}
 }
 /*
