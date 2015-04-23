@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"masterselection"
 )
 
 /*
@@ -98,7 +99,7 @@ var (
 	serverId         = -1
 	masterId         = -1
 	groupId          = -1 // TODO SET FROM CONF. REDIRECT.
-	caster           = new(multicaster.Multicaster)
+	caster           = multicaster.Multicaster{}
 	mutex            = &sync.Mutex{}
 	mapElection      = make(map[int]int)
 	heartbeatManager = new(heartbeat.Heartbeat)
@@ -690,6 +691,40 @@ func usage() {
 	fmt.Printf("usage: %s serverName\n", os.Args[0])
 }
 
+func checkDead() {
+	fmt.Println("checkDead")
+	deadChan := heartbeatManager.GetDeadChan()
+	for {
+		dead := <-deadChan
+		fmt.Println(dead)
+		deadId := -1
+		if serverId == masterId {
+			for i, server := range configuration.Servers {
+				if dead == server.IP + ":" + server.Heartbeat {
+					deadId = i
+					break
+				}
+			}
+			fmt.Println("UpdateLinkedMap")
+			masterelection.UpdateLinkedMap(deadId, mapElection)
+		} else {
+			// slave
+			fmt.Println("QualifiedToRaise")
+			if masterelection.QualifiedToRaise(serverId, masterId, mapElection, &masterId) {
+				fmt.Println("RaiseElection")
+				masterelection.RaiseElection(serverId, caster, mapElection)
+				electionChan := caster.GetEmChan()
+				for {
+					em := <-electionChan
+					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
+						break
+					}
+				}
+			}
+		}
+	}
+}
+
 func main() {
 	// server name should be the first argument
 	if len(os.Args) < 2 {
@@ -772,6 +807,7 @@ func main() {
 		fmt.Println("master = ", master)
 		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, master, master)
 	}
+	
 
 	// initialize multicast
 	caster.Initialize(configuration.Servers[serverId].Port)
@@ -785,6 +821,7 @@ func main() {
 	}
 	// debug only
 	showConfiguration()
+	go checkDead()
 
 	flag.Parse()
 	http.HandleFunc("/", makeHandler(homeHandler))
