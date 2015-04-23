@@ -1,13 +1,15 @@
-package main
+package masterelection
 
 import (
     "fmt"
+    "strconv"
+    "multicaster"
 //	"net"
 //	"os"
 )
 
 type ElectionMsg struct{
-	masterSelectSet map[int]bool
+	MasterSelectSet map[int]bool
 	newMasterId int
 }
 
@@ -15,21 +17,17 @@ type ElectionMsg struct{
 If the master die(slaves will not receive heartbeat from master),
 slaves will check if they're qualified to raise the master Election
 */
-func qualifiedToRaise(id int, master int, m map[int]int) bool{
+func qualifiedToRaise(id int, master int, m map[int]int, masterId *int) bool{
 	if value, ok := m[id]; ok {
 		if value == master {
 			updateLinkedMap(master, m)
-			if len(m) == 0 {
-				masterId = id
+			if len(m) == 1 {
+				*masterId = id
 				fmt.Println("You are now the only one remain in the server")
 				return false
 			}
 			return true
 		}
-	}
-	else{
-		// Only one node remains in the group
-		masterId = id
 	}
 	return false
 }
@@ -38,42 +36,42 @@ func qualifiedToRaise(id int, master int, m map[int]int) bool{
 If the slave is qalified to raise an election, call this function
 This function will initiallize the election message, and pass through the ring
 */
-func raiseElection(id int) {
+func raiseElection(id int, caster multicaster.Multicaster, m map[int]int) {
 	msg := new(multicaster.ElectionMsg)
-	msg.masterSelectSet = make(map[int]bool)
+	msg.MasterSelectSet = make(map[int]bool)
 	msg.newMasterId = -1
-	msg.masterSelectSet[id] = false
+	msg.MasterSelectSet[id] = false
 	// TODO: pass message to the next element in the link
-	//caster.sendMessage()
+	caster.SendElectionMessage(strconv.Itoa(m[id]), msg)
 }
 
 /*
 
 */
-func readElectionMsg(id int, msg multicaster.ElectionMsg){
-	if value, ok := msg.masterSelectSet[id]; ok {
+func readElectionMsg(id int, msg multicaster.ElectionMsg, caster multicaster.Multicaster, m map[int]int, masterId *int) bool{
+	if value, ok := msg.MasterSelectSet[id]; ok {
 		if value == true {
 			fmt.Println("Election finished")
+			return true
 			// Everyone knew who the master is, stop election.
 		} else{
-			msg.masterSelectSet[id] = true
+			msg.MasterSelectSet[id] = true
 			if msg.newMasterId == -1{
-				for key, _ := range msg.masterSelectSet {
+				for key, _ := range msg.MasterSelectSet {
 					if msg.newMasterId < key {
 						msg.newMasterId = key
 					}
 				}
 			}
-			// TODO: Set our new master
-			masterId = msg.newMasterId
-			// TODO: Pass to next node
-
+			*masterId = msg.newMasterId
+			caster.SendElectionMessage(m[id], msg)
 		}
 	} else{
 		// First round election
-		msg.masterSelectSet[id] = false
-		// TODO: send to next node(via linked map list)
+		msg.MasterSelectSet[id] = false
+		caster.SendElectionMessage(m[id], msg)
 	}
+	return false
 }
 
 /*
@@ -82,12 +80,8 @@ If some node die, update the linked map list.
 func updateLinkedMap(id int, m map[int]int){
 	for key, value := range m {
 		if value == id {
-			if len(m) != 1{
-				m[key] = m[id]
-				delete(m, id)
-			} else {
-				delete(m, key)
-			}
+			m[key] = m[id]
+			delete(m, id)
 			break
 		}
 	}
