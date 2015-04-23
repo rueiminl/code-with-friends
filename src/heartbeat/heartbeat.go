@@ -63,12 +63,12 @@ func (this *Heartbeat) Update(from []string, to []string) {
 
 func (this *Heartbeat) SendTo() {
 	ticker := time.NewTicker(time.Second * HEARTBEAT_TIMEOUT)
-	for t := range ticker.C {
+	for _ = range ticker.C {
 		// sendout
 		this.mutex.Lock()
 		for _, addr := range this.to {
 			this.socket.WriteToUDP([]byte(this.host), addr)
-			fmt.Println(this.host, "send heartbeat to", addr.String(), "at", t)
+			// fmt.Println(this.host, "send heartbeat to", addr.String())
 		}
 		
 		// check if dead
@@ -87,13 +87,13 @@ func (this *Heartbeat) RecvFrom() {
 	for {
 		n, _, err := this.socket.ReadFromUDP(buf)
 		if err != nil {
-			fmt.Println("Error in heartbeat.RecvFrom: ",err)
+			// fmt.Println("Error in heartbeat.RecvFrom: ",err)
 		} 
 		from := string(buf[0:n])
-		fmt.Println(this.host, "receive heartbeat from", from)
+		// fmt.Println(this.host, "receive heartbeat from", from)
 		this.mutex.Lock()
 		this.ts[from] = time.Now()
-		fmt.Println("update ts[", from, "] = ", this.ts[from])
+		// fmt.Println("update ts[", from, "] = ", this.ts[from])
 		this.mutex.Unlock()
 	}
 }

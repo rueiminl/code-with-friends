@@ -68,11 +68,12 @@ type PythonSession struct {
 
 type Configuration struct {
 	Servers []struct {
-		Name     string `json:"name"`
-		IP       string `json:"ip"`
-		Port     string `json:"port"`
-		HttpPort string `json:"httpport"`
-		Group    string `json:"group"`
+		Name      string `json:"name"`
+		IP        string `json:"ip"`
+		Port      string `json:"port"`
+		HttpPort  string `json:"httpport"`
+		Group     string `json:"group"`
+		Heartbeat string `json:"heartbeat"`
 	} `json:"servers"`
 	Groups []struct {
 		Name    string   `json:"name"`
@@ -642,6 +643,26 @@ func main() {
 		}
 	}
 	mapElection[masterId] = first
+
+	// initialize heartbeat
+	if serverId == masterId {
+		// master should monitor all slaves excluding itself
+		slaves := make([]string, len(configuration.Servers) - 1)
+		i := 0
+		for id, server := range configuration.Servers {
+			if id == serverId {
+				continue
+			}
+			slaves[i] = server.IP + ":" + server.Heartbeat
+			i++
+		}
+		fmt.Println("slaves = ", slaves)
+		heartbeatManager.Initialize(configuration.Servers[serverId].IP + ":" + configuration.Servers[serverId].Heartbeat, slaves, slaves)
+	} else {
+		master := []string{configuration.Servers[masterId].IP + ":" + configuration.Servers[masterId].Heartbeat}
+		fmt.Println("master = ", master)
+		heartbeatManager.Initialize(configuration.Servers[serverId].IP + ":" + configuration.Servers[serverId].Heartbeat, master, master)
+	}
 
 	// initialize multicast
 	caster.Initialize(configuration.Servers[serverId].Port)
