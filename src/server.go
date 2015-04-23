@@ -719,12 +719,12 @@ func checkDead() {
 				for {
 					em := <-electionChan
 					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
-						// ... notify multicaster
+						// TODO notify multicaster
 						break
 					}
 				}
 			}
-			// ... notify multicaster
+			// TODO notify multicaster
 		}
 	}
 }
