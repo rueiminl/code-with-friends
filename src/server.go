@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"heartbeat"
+	"masterelection"
 )
 
 /*
@@ -585,6 +586,35 @@ func usage() {
 	fmt.Printf("usage: %s serverName\n", os.Args[0])
 }
 
+func checkDead() {
+	deadChan := heartbeatManager.GetDeadChan()
+	for {
+		dead := <-deadChan
+		deadId := -1
+		if serverId == masterId {
+			for i, server := range configuration.Servers {
+				if dead == server.IP + ":" + server.Heartbeat {
+					deadId = i
+					break
+				}
+			}
+			masterelection.updateLinkedMap(deadId, mapElection)
+		} else {
+			// slave
+			if masterelection.qualifiedToRaised(serverId, masterId, mapElection, &masterId) {
+				masterelection.raiseElection(serverId, caster, mapElection)
+				electionChan := caster.GetEmChan()
+				for {
+					message := <-electionChan
+					if masterelection.readElectionMsg(serverId, message.Em, caster, mapElection, &masterId) {
+						break
+					}
+				}
+			}
+		}
+	}
+}
+
 func main() {
 	// server name should be the first argument
 	if len(os.Args) < 2 {
@@ -663,6 +693,7 @@ func main() {
 		fmt.Println("master = ", master)
 		heartbeatManager.Initialize(configuration.Servers[serverId].IP + ":" + configuration.Servers[serverId].Heartbeat, master, master)
 	}
+	
 
 	// initialize multicast
 	caster.Initialize(configuration.Servers[serverId].Port)
@@ -676,6 +707,7 @@ func main() {
 	}
 	// debug only
 	showConfiguration()
+	go checkDead()
 
 	flag.Parse()
 	http.HandleFunc("/", makeHandler(homeHandler))
