@@ -736,6 +736,8 @@ func main() {
 	// initialize mapElection masterId (max one in the group) by serverId and groupId
 	first := -1
 	masterId = -1
+	// FIXME FIXME FIXME THIS IS A HACK, NOT AN ELECTION. LOWEST IN
+	// CONFIG FILE BECOMES MASTER.
 	for i, server := range configuration.Servers {
 		if configuration.Groups[groupId].Name == server.Group {
 			if first == -1 {
@@ -758,8 +760,10 @@ func main() {
 			if id == serverId {
 				continue
 			}
-			slaves[i] = server.IP + ":" + server.Heartbeat
-			i++
+			if configuration.Groups[groupId].Name == server.Group {
+				slaves[i] = server.IP + ":" + server.Heartbeat
+				i++
+			}
 		}
 		fmt.Println("slaves = ", slaves)
 		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, slaves, slaves)
