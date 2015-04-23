@@ -1,17 +1,18 @@
 package multicaster
 
 type Message struct {
-	Source  string
-	Dest    string
+	Source   string
+	Dest     string
 	MemToDlt string
-	Content MessageInfo
-	Em 		ElectionMsg
-	Type    string
-	Session string
+	Content  MessageInfo
+	Em       ElectionMsg
+	Type     string
+	Session  string
 }
 
 type MessageInfo struct {
 	SessionName   string
+	UserName      string
 	CodeToExecute string
 	MasterId      int
 }
@@ -24,7 +25,7 @@ ElectionMsg:
 
    	newMasterId -> Initialize as -1, and after first round, pick the largest number in the map.
 */
-type ElectionMsg struct{
+type ElectionMsg struct {
 	MasterSelectSet map[int]bool
-	NewMasterId int
+	NewMasterId     int
 }
