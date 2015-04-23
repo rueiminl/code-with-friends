@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"heartbeat"
 )
 
 /*
@@ -95,6 +96,7 @@ var (
 	caster        = new(multicaster.Multicaster)
 	mutex         = &sync.Mutex{}
 	mapElection   = make(map[int]int)
+	heartbeatManager = new(heartbeat.Heartbeat)
 )
 
 /*
@@ -600,16 +602,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
-	// initialize mapElection by Servers
-	for i, _ := range configuration.Servers {
-		if i == len(configuration.Servers) - 1 {
-			mapElection[i] = 0
-		} else {
-			mapElection[i] = i + 1
-		}
-	}
-	masterId = len(configuration.Servers) - 1
 
 	// search serverName in configuration
 		for i, server := range configuration.Servers {
@@ -622,7 +614,7 @@ func main() {
 		log.Fatal("Error: server " + serverName + " not found in configuration")
 		os.Exit(0)
 	}
-
+	
 	// search group in configuration
 	for i, group := range configuration.Groups {
 		if configuration.Servers[serverId].Group == group.Name {
@@ -634,6 +626,22 @@ func main() {
 		log.Fatal("Error: group " + configuration.Servers[serverId].Group + " not found in configuration")
 		os.Exit(0)
 	}
+	
+	// initialize mapElection masterId (max one in the group) by serverId and groupId
+	first := -1
+	masterId = -1
+	for i, server := range configuration.Servers {
+		if configuration.Groups[groupId].Name == server.Group {
+			if first == -1 {
+				first = i
+			}
+			if masterId != -1 {
+				mapElection[masterId] = i
+			}
+			masterId = i
+		}
+	}
+	mapElection[masterId] = first
 
 	// initialize multicast
 	caster.Initialize(configuration.Servers[serverId].Port)
