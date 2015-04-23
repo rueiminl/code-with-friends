@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"masterselection"
 	"multicaster"
 	"net"
 	"net/http"
@@ -20,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"masterselection"
 )
 
 /*
@@ -53,6 +53,7 @@ of users. Also contains all necessary channels for interacting with the master o
 the session.
 */
 type PythonSession struct {
+	sessionName         string
 	inPipe              io.WriteCloser
 	outPipe             io.ReadCloser
 	errPipe             io.ReadCloser
@@ -151,8 +152,6 @@ func sessionMaster(s *PythonSession) {
 			if !ok {
 				fmt.Println("Closed chSetUsername")
 			} else {
-				// TODO Multicasting here?
-				// multicastMutex
 				fmt.Println("[SMASTER] New user in session: ", uname)
 				s.userMap[uname] = &userInfo{}
 			}
@@ -296,7 +295,9 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 
 // Helper function to multicast CODE from MASTER --> REPLICAS
 func multicastCode(s *PythonSession, code, sessionName string) {
-	// TODO (assert masterness)
+	if masterId != serverId {
+		panic("Only master should multicast")
+	}
 	mi := multicaster.MessageInfo{}
 	mi.SessionName = sessionName
 	mi.CodeToExecute = code
@@ -304,13 +305,36 @@ func multicastCode(s *PythonSession, code, sessionName string) {
 	s.multicastMutex.Lock()
 	if caster.Multicast(sessionName, mi, 5) {
 		fmt.Println("Multicast code to session SUCCESS")
-		// masterId = serverId
+		// The master can only apply the request locally if
+		// all servers have applied it as well.
 		sendExecuteRequestToSessionMaster(s, code)
 	} else {
 		fmt.Println("Multicast code to session FAILURE")
 	}
 	s.multicastMutex.Unlock()
+}
 
+// Helper function to multicast USERNAME from MASTER --> REPLICAS.
+// Returns "true" on success.
+func multicastUser(s *PythonSession, user, sessionName string) bool {
+	if masterId != serverId {
+		panic("Only master should multicast")
+	}
+	mi := multicaster.MessageInfo{}
+	mi.SessionName = sessionName
+	mi.UserName = user
+	mi.MasterId = serverId
+	s.multicastMutex.Lock()
+	defer s.multicastMutex.Unlock()
+	if caster.Multicast(sessionName, mi, 5) {
+		fmt.Println("Multicast username to session SUCCESS")
+		// The master can only add the user if all other servers
+		// have added the user as well.
+		return addUserToSession(s, user)
+	} else {
+		fmt.Println("Multicast username to session FAILURE")
+		return false
+	}
 }
 
 func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
@@ -463,8 +487,9 @@ func resetsessionHandler(w http.ResponseWriter, r *http.Request) {
 Function which creates a new LOCAL python session.
 TODO Sandbox
 */
-func createSession() *PythonSession {
+func createSession(name string) *PythonSession {
 	session := new(PythonSession)
+	session.sessionName = name
 	argv := "-i"
 	binary, err := exec.LookPath("python")
 	session.cmd = exec.Command(binary, argv)
@@ -484,6 +509,7 @@ func createSession() *PythonSession {
 	session.chResponseIoNumber = make(chan *ioNumberResponse)
 	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
 	session.multicastMutex = &sync.Mutex{}
+	caster.AddSession(session.sessionName)
 	session.userMap = make(map[string]*userInfo)
 
 	fmt.Println("Created a new process: ")
@@ -541,16 +567,26 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("JOIN SESSION " + sessionName)
 	session := sessionMap[sessionName]
 	if session == nil {
-		sessionMap[sessionName] = createSession()
+		sessionMap[sessionName] = createSession(sessionName)
 		go receiveMulticast(sessionName)
 	}
 	session = sessionMap[sessionName]
 	fmt.Println("Adding user to session: ", newCoderName)
-	if addUserToSession(session, newCoderName) {
-		fmt.Fprintf(w, "SUCCESS")
-	} else {
-		fmt.Fprintf(w, "UNAMEFAILURE")
+	if masterId == serverId {
+		// Master case
+		if multicastUser(session, newCoderName, sessionName) {
+			fmt.Fprintf(w, "SUCCESS")
+		}
+	} else if masterId != serverId {
+		// Send the request to the master.
+		s := configuration.Servers[masterId]
+		newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+		fmt.Println("\tRedirecting to ", newURL)
+		http.Redirect(w, r, newURL, 307)
+		return
 	}
+	// Failure case
+	fmt.Fprintf(w, "UNAMEFAILURE")
 }
 
 /*
@@ -669,12 +705,13 @@ func receiveMulticast(sessionName string) {
 			masterId = mi.MasterId
 		}
 		*/
+		fmt.Println("New message: ", mi)
 		sessionName := mi.SessionName
 		session := sessionMap[sessionName]
 		if session == nil {
 			// This shouls never happen -- createServer must be called
 			// before receiveMulticast.
-			os.Exit(-1)
+			panic("Session must be created before receiving multicast")
 		}
 		codeToExecute := mi.CodeToExecute
 		userName := mi.UserName
@@ -682,7 +719,11 @@ func receiveMulticast(sessionName string) {
 			// This message is from the master, telling us to execute code.
 			sendExecuteRequestToSessionMaster(session, codeToExecute)
 		} else if userName != "" {
-			// FIXME: new user
+			if addUserToSession(session, userName) {
+				fmt.Println("User added: ", userName)
+			} else {
+				fmt.Println("User could not be added: ", userName)
+			}
 		}
 	}
 }
@@ -700,7 +741,7 @@ func checkDead() {
 		deadId := -1
 		if serverId == masterId {
 			for i, server := range configuration.Servers {
-				if dead == server.IP + ":" + server.Heartbeat {
+				if dead == server.IP+":"+server.Heartbeat {
 					deadId = i
 					break
 				}
@@ -807,7 +848,6 @@ func main() {
 		fmt.Println("master = ", master)
 		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, master, master)
 	}
-	
 
 	// initialize multicast
 	caster.Initialize(configuration.Servers[serverId].Port)
