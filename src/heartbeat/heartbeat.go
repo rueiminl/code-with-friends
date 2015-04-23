@@ -75,6 +75,7 @@ func (this *Heartbeat) SendTo() {
 		for from, ts := range this.ts {
 			if time.Now().After(ts.Add(time.Second * DEAD_TIMEOUT)) {
 				fmt.Println("Dead Detected!", from)
+				delete(this.ts, from)
 				this.dead <- from
 			}
 		}
