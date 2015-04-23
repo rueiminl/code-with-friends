@@ -1,25 +1,28 @@
 {
 	"servers" : [
 		{
-			"name"     : "alice",
-			"ip"       : "127.0.0.1",
-			"port"     : "12345",
-			"httpport" : "8080",
-			"group"    : "A"
-		}
-		,{
-			"name"     : "bob",
-			"ip"       : "127.0.0.1",
-			"port"     : "12346",
-			"httpport" : "8081",
-			"group"    : "A"
-		}
-		,{
-			"name"     : "charlie",
-			"ip"       : "127.0.0.1",
-			"port"     : "12347",
-			"httpport" : "8082",
-			"group"    : "B"
+			"name"      : "alice",
+			"ip"        : "127.0.0.1",
+			"port"      : "12345",
+			"httpport"  : "8080",
+			"heartbeat" : "10001",
+			"group"     : "A"
+		}               
+		,{              
+			"name"      : "bob",
+			"ip"        : "127.0.0.1",
+			"port"      : "12346",
+			"httpport"  : "8081",
+			"heartbeat" : "10002",
+			"group"     : "A"
+		}               
+		,{              
+			"name"      : "charlie",
+			"ip"        : "127.0.0.1",
+			"port"      : "12347",
+			"httpport"  : "8082",
+			"heartbeat" : "10003",
+			"group"     : "B"
 		}
 	],
 	"groups" : [

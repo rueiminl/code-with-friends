@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"hash/fnv"
+	"heartbeat"
 	"html/template"
 	"io"
 	"io/ioutil"
@@ -71,11 +72,12 @@ type PythonSession struct {
 
 type Configuration struct {
 	Servers []struct {
-		Name     string `json:"name"`
-		IP       string `json:"ip"`
-		Port     string `json:"port"`
-		HttpPort string `json:"httpport"`
-		Group    string `json:"group"`
+		Name      string `json:"name"`
+		IP        string `json:"ip"`
+		Port      string `json:"port"`
+		HttpPort  string `json:"httpport"`
+		Group     string `json:"group"`
+		Heartbeat string `json:"heartbeat"`
 	} `json:"servers"`
 	Groups []struct {
 		Name    string   `json:"name"`
@@ -87,99 +89,20 @@ type Configuration struct {
 Collection of global variables used by server.
 */
 var (
-	addr          = flag.Bool("addr", false, "find open address and print to final-port.txt")
-	gopath        = os.Getenv("GOPATH")
-	webpagesDir   = gopath + "webpages/"
-	validPath     = regexp.MustCompile("^/(readactiveusers|readpartnercode|readsessionactive|readexecutedcode|executecode|edit|resetsession|joinsession)/([a-zA-Z0-9]*)$")
-	sessionMap    = make(map[string]*PythonSession)
-	configuration = new(Configuration)
-	serverId      = -1
-	masterId      = -1
-	groupId       = -1 // TODO SET FROM CONF. REDIRECT.
-	caster        = new(multicaster.Multicaster)
+	addr             = flag.Bool("addr", false, "find open address and print to final-port.txt")
+	gopath           = os.Getenv("GOPATH")
+	webpagesDir      = gopath + "webpages/"
+	validPath        = regexp.MustCompile("^/(readactiveusers|readpartnercode|readsessionactive|readexecutedcode|executecode|edit|resetsession|joinsession)/([a-zA-Z0-9]*)$")
+	sessionMap       = make(map[string]*PythonSession)
+	configuration    = new(Configuration)
+	serverId         = -1
+	masterId         = -1
+	groupId          = -1 // TODO SET FROM CONF. REDIRECT.
+	caster           = new(multicaster.Multicaster)
+	mutex            = &sync.Mutex{}
+	mapElection      = make(map[int]int)
+	heartbeatManager = new(heartbeat.Heartbeat)
 )
-
-/*
-ElectionMsg:
-    map -> If slave id not in map, join the election by add into the map and set the value to 'false'.
-    	   If slave id is in the map, and map[id] = false, set masterId = newMasterId
-    	   If slave id is in the map and value equals to true, finish election.
-
-   	newMasterId -> Initialize as -1, and after first round, pick the largest number in the map.
-*/
-type ElectionMsg struct {
-	masterSelectSet map[int]bool
-	newMasterId     int
-}
-
-/*
-If the master die(slaves will not receive heartbeat from master),
-slaves will check if they're qualified to raise the master Election
-*/
-func qualifiedToRaise(id int, master int, m map[int]int) bool {
-	if value, ok := m[id]; ok {
-		if value == master {
-			updateLinkedMap(master, m)
-			raiseElection(id)
-			return true
-		}
-	}
-	return false
-}
-
-/*
-If the slave is qalified to raise an election, call this function
-This function will initiallize the election message, and pass through the ring
-*/
-func raiseElection(id int) {
-	msg := new(ElectionMsg)
-	msg.masterSelectSet = make(map[int]bool)
-	msg.newMasterId = -1
-	msg.masterSelectSet[id] = false
-	// TODO: pass message to the next element in the link
-}
-
-/*
-
-*/
-func readElectionMsg(id int, msg ElectionMsg) {
-	if value, ok := msg.masterSelectSet[id]; ok {
-		if value == true {
-			fmt.Println("Election finished")
-			// Everyone knew who the master is, stop election.
-		} else {
-			msg.masterSelectSet[id] = true
-			if msg.newMasterId == -1 {
-				for key, _ := range msg.masterSelectSet {
-					if msg.newMasterId < key {
-						msg.newMasterId = key
-					}
-				}
-			}
-			// TODO: Set our new master
-			masterId = msg.newMasterId
-			// TODO: Pass to next node
-
-		}
-	} else {
-		// First round election
-		msg.masterSelectSet[id] = false
-		// TODO: send to next node(via linked map list)
-	}
-}
-
-/*
-If some node die, update the linked map list.
-*/
-func updateLinkedMap(id int, m map[int]int) {
-	for key, value := range m {
-		if value == id {
-			m[key] = m[id]
-			delete(m, id)
-			break
-		}
-	}
-}
 
 /*
 Function which renders the HTML page requested.
@@ -359,7 +282,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ... and send that code to the master to be written to the session.
-	if (masterId == -1) || (masterId == serverId) {
+	if masterId == serverId { // (masterId == -1) should not happen
 		multicastCode(session, codeToExecute, sessionName)
 	} else {
 		// Send the request to the master.
@@ -380,7 +303,7 @@ func multicastCode(s *PythonSession, code, sessionName string) {
 	s.multicastMutex.Lock()
 	if caster.Multicast(sessionName, mi, 5) {
 		fmt.Println("Multicast code to session SUCCESS")
-		masterId = serverId
+		// masterId = serverId
 		sendExecuteRequestToSessionMaster(s, code)
 	} else {
 		fmt.Println("Multicast code to session FAILURE")
@@ -739,10 +662,12 @@ func receiveMulticast(sessionName string) {
 	for {
 		mi := <-ch
 		// TODO FIXME: Use master election here!
+		/* // should not happen
 		if masterId == -1 {
 			fmt.Printf("Multicast received: Setting master to %d\n", mi.MasterId)
 			masterId = mi.MasterId
 		}
+		*/
 		sessionName := mi.SessionName
 		session := sessionMap[sessionName]
 		if session == nil {
@@ -806,6 +731,42 @@ func main() {
 	if groupId < 0 {
 		log.Fatal("Error: group " + configuration.Servers[serverId].Group + " not found in configuration")
 		os.Exit(0)
+	}
+
+	// initialize mapElection masterId (max one in the group) by serverId and groupId
+	first := -1
+	masterId = -1
+	for i, server := range configuration.Servers {
+		if configuration.Groups[groupId].Name == server.Group {
+			if first == -1 {
+				first = i
+			}
+			if masterId != -1 {
+				mapElection[masterId] = i
+			}
+			masterId = i
+		}
+	}
+	mapElection[masterId] = first
+
+	// initialize heartbeat
+	if serverId == masterId {
+		// master should monitor all slaves excluding itself
+		slaves := make([]string, len(configuration.Servers)-1)
+		i := 0
+		for id, server := range configuration.Servers {
+			if id == serverId {
+				continue
+			}
+			slaves[i] = server.IP + ":" + server.Heartbeat
+			i++
+		}
+		fmt.Println("slaves = ", slaves)
+		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, slaves, slaves)
+	} else {
+		master := []string{configuration.Servers[masterId].IP + ":" + configuration.Servers[masterId].Heartbeat}
+		fmt.Println("master = ", master)
+		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, master, master)
 	}
 
 	// initialize multicast
