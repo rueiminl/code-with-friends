@@ -117,7 +117,6 @@
     $('#formnewsession').submit(function() {
         $theForm = $(this);
         document.getElementById("resetsessionbutton").disabled = false;
-		$('#sessionName').text($('#newSessionName').val());
         $.ajax({
             type: $theForm.attr('method'),
             url: $theForm.attr('action'),
@@ -126,9 +125,12 @@
             success: function(data) {
                 if (data == "SUCCESS") {
                     console.log('Yay! New session.');
+		            $('#sessionName').text($('#newSessionName').val());
 		            $('#userName').text($('#newCoderName').val());
-                } else if (data == "FAILURE") {
-                    alert("Try inputting different session name / username. That combination failed.");
+                } else if (data == "UNAMEFAILURE") {
+                    alert("Try inputting different username. That one is not available.");
+                } else if (data == "SNAMEFAILURE") {
+                    alert("Try inputting different session name. That one is not available. (Session names may not start with #) ");
                 } else {
                     alert("Try joining that session from this server instead");
                     window.location = data;

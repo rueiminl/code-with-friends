@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"hash/fnv"
+	"heartbeat"
 	"html/template"
 	"io"
 	"io/ioutil"
@@ -62,9 +63,13 @@ type PythonSession struct {
 	ioMap               map[int]string          // Map of all input/output/errors
 	chMasterReady       chan bool               // OUTPUT : Written to by master when ready to execute.
 	chExecuteCode       chan string             // INPUT : Channel of "please execute this code"
+	chRequestUsername   chan string             // INPUT : "Does this user exist?"
+	chUsernameExists    chan bool               // OUTPUT : Reponse from master, "user exists"
+	chSetUsername       chan string             // INPUT : Add this user to the session.
 	chRequestIoNumber   chan int                // INPUT : A goroutine is requesting the value of a particular io number.
 	chResponseIoNumber  chan *ioNumberResponse  // OUTPUT : Response from master regarding requested io number.
 	chIoMapWriteRequest chan *ioMapWriteRequest // INPUT : Request to write to ioMap.
+	multicastMutex      *sync.Mutex             // Locks access to master's multicaster.
 }
 
 type Configuration struct {
@@ -86,18 +91,18 @@ type Configuration struct {
 Collection of global variables used by server.
 */
 var (
-	addr          = flag.Bool("addr", false, "find open address and print to final-port.txt")
-	gopath        = os.Getenv("GOPATH")
-	webpagesDir   = gopath + "webpages/"
-	validPath     = regexp.MustCompile("^/(readactiveusers|readpartnercode|readsessionactive|readexecutedcode|executecode|edit|resetsession|joinsession)/([a-zA-Z0-9]*)$")
-	sessionMap    = make(map[string]*PythonSession)
-	configuration = new(Configuration)
-	serverId      = -1
-	masterId      = -1
-	groupId       = -1 // TODO SET FROM CONF. REDIRECT.
-	caster        = new(multicaster.Multicaster)
-	mutex         = &sync.Mutex{}
-	mapElection   = make(map[int]int)
+	addr             = flag.Bool("addr", false, "find open address and print to final-port.txt")
+	gopath           = os.Getenv("GOPATH")
+	webpagesDir      = gopath + "webpages/"
+	validPath        = regexp.MustCompile("^/(readactiveusers|readpartnercode|readsessionactive|readexecutedcode|executecode|edit|resetsession|joinsession)/([a-zA-Z0-9]*)$")
+	sessionMap       = make(map[string]*PythonSession)
+	configuration    = new(Configuration)
+	serverId         = -1
+	masterId         = -1
+	groupId          = -1 // TODO SET FROM CONF. REDIRECT.
+	caster           = new(multicaster.Multicaster)
+	mutex            = &sync.Mutex{}
+	mapElection      = make(map[int]int)
 	heartbeatManager = new(heartbeat.Heartbeat)
 )
 
@@ -142,12 +147,39 @@ func sessionMaster(s *PythonSession) {
 	for {
 		s.chMasterReady <- true // Only return true when s.cmd != nil.
 		select {
+		// Set a new user in this session.
+		case uname, ok := <-s.chSetUsername:
+			if !ok {
+				fmt.Println("Closed chSetUsername")
+			} else {
+				// TODO Multicasting here?
+				// multicastMutex
+				fmt.Println("[SMASTER] New user in session: ", uname)
+				s.userMap[uname] = &userInfo{}
+			}
+		// Does the user already exist in this session?
+		case uname, ok := <-s.chRequestUsername:
+			if !ok {
+				fmt.Println("Closed chRequestUsername")
+			} else {
+				fmt.Println("[SMASTER] Requesting username: ", uname)
+				if _, ok := s.userMap[uname]; ok {
+					fmt.Println("exists")
+					s.chUsernameExists <- true
+				} else {
+					fmt.Println("doesn't exist")
+					s.chUsernameExists <- false
+				}
+			}
+		// Please execute this code
 		case inp, ok := <-s.chExecuteCode:
 			if !ok {
 				fmt.Println("Closed chExecuteCode.")
 			} else {
+				// TODO Add a buffered channel
 				// TODO: Can this be done asynchronously?
 				// Right now, Master will be blocked on code which takes a while to execute.
+				fmt.Println("[SMASTER] Executing code")
 				writeToSession(inp, s)
 				s.ioMap[s.ioNumber] = "INP:" + inp
 				s.ioNumber++
@@ -156,6 +188,7 @@ func sessionMaster(s *PythonSession) {
 			if !ok {
 				fmt.Println("Closed chRequestIoNumber")
 			} else {
+				fmt.Println("[SMASTER] Responding to IO request")
 				ioInfo := new(ioNumberResponse)
 				ioInfo.currentIoNumber = s.ioNumber
 				if ioInfo.currentIoNumber > request {
@@ -167,6 +200,7 @@ func sessionMaster(s *PythonSession) {
 			if !ok {
 				fmt.Println("Closed chIoMapWriteRequest")
 			} else {
+				fmt.Println("[SMASTER] Responding to IO WRITE request")
 				if request.stdout {
 					s.ioMap[s.ioNumber] = "OUT:" + request.output
 				} else { // stderr
@@ -250,18 +284,8 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ... and send that code to the master to be written to the session.
-	if (masterId == serverId) { // (masterId == -1) should not happen
-		// In this case, we ARE the master.
-		mi := multicaster.MessageInfo{sessionName, codeToExecute, serverId}
-		mutex.Lock()
-		if caster.Multicast(sessionName, mi, 5) {
-			fmt.Println("Multicast code to session SUCCESS")
-			// masterId = serverId
-			sendExecuteRequestToSessionMaster(session, codeToExecute)
-		} else {
-			fmt.Println("Multicast code to session FAILURE")
-		}
-		mutex.Unlock()
+	if masterId == serverId { // (masterId == -1) should not happen
+		multicastCode(session, codeToExecute, sessionName)
 	} else {
 		// Send the request to the master.
 		s := configuration.Servers[masterId]
@@ -269,6 +293,25 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("\tRedirecting to ", newURL)
 		http.Redirect(w, r, newURL, 307)
 	}
+}
+
+// Helper function to multicast CODE from MASTER --> REPLICAS
+func multicastCode(s *PythonSession, code, sessionName string) {
+	// TODO (assert masterness)
+	mi := multicaster.MessageInfo{}
+	mi.SessionName = sessionName
+	mi.CodeToExecute = code
+	mi.MasterId = serverId
+	s.multicastMutex.Lock()
+	if caster.Multicast(sessionName, mi, 5) {
+		fmt.Println("Multicast code to session SUCCESS")
+		// masterId = serverId
+		sendExecuteRequestToSessionMaster(s, code)
+	} else {
+		fmt.Println("Multicast code to session FAILURE")
+	}
+	s.multicastMutex.Unlock()
+
 }
 
 func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
@@ -351,6 +394,9 @@ func readpartnercodeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+/*
+TODO FIXME
+*/
 func resetsessionHandler(w http.ResponseWriter, r *http.Request) {
 	// argv := []string{"-i"}
 	sessionName := r.FormValue("sessionName")
@@ -375,9 +421,13 @@ func resetsessionHandler(w http.ResponseWriter, r *http.Request) {
 	session.ioMap = make(map[int]string)
 	session.chMasterReady = make(chan bool)
 	session.chExecuteCode = make(chan string)
+	session.chRequestUsername = make(chan string)
+	session.chUsernameExists = make(chan bool)
+	session.chSetUsername = make(chan string)
 	session.chRequestIoNumber = make(chan int)
 	session.chResponseIoNumber = make(chan *ioNumberResponse)
 	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
+	session.multicastMutex = &sync.Mutex{}
 
 	sessionMap[sessionName] = session
 	fmt.Println("Created a new process: ")
@@ -410,6 +460,10 @@ func resetsessionHandler(w http.ResponseWriter, r *http.Request) {
 	go sessionMaster(session)
 }
 
+/*
+Function which creates a new LOCAL python session.
+TODO Sandbox
+*/
 func createSession() *PythonSession {
 	session := new(PythonSession)
 	argv := "-i"
@@ -424,9 +478,13 @@ func createSession() *PythonSession {
 	session.ioMap = make(map[int]string)
 	session.chMasterReady = make(chan bool)
 	session.chExecuteCode = make(chan string)
+	session.chRequestUsername = make(chan string)
+	session.chUsernameExists = make(chan bool)
+	session.chSetUsername = make(chan string)
 	session.chRequestIoNumber = make(chan int)
 	session.chResponseIoNumber = make(chan *ioNumberResponse)
 	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
+	session.multicastMutex = &sync.Mutex{}
 	session.userMap = make(map[string]*userInfo)
 
 	fmt.Println("Created a new process: ")
@@ -460,14 +518,27 @@ func createSession() *PythonSession {
 	return session
 }
 
+/*
+Lets users join a session
+*/
 func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 	sessionName := r.FormValue("newSessionName")
+	sessionName = strings.Trim(sessionName, " ")
+	if sessionName == "" || sessionName[0] == '#' {
+		fmt.Fprintf(w, "SNAMEFAILURE")
+		return
+	}
 	if redirectToCorrectSession(sessionName, w, r) {
 		return
 	}
 	newCoderName := r.FormValue("newCoderName")
 	// "\n" used as separator when returning list of users later.
-	newCoderName = strings.Replace(newCoderName, "\n", " ", -1)
+	newCoderName = strings.Replace(strings.Trim(newCoderName, " "),
+		"\n", " ", -1)
+	if newCoderName == "" {
+		fmt.Fprintf(w, "UNAMEFAILURE")
+		return
+	}
 	fmt.Println("JOIN SESSION " + sessionName)
 	session := sessionMap[sessionName]
 	if session == nil {
@@ -475,14 +546,40 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 		go receiveMulticast(sessionName)
 	}
 	session = sessionMap[sessionName]
-	if _, ok := session.userMap[newCoderName]; ok {
-		// User already exists here.
-		fmt.Fprintf(w, "FAILURE")
-	} else {
-		// TODO Multicast list of active users.
-		session.userMap[newCoderName] = &userInfo{}
-		// TODO Should there be a timeout / removal mechanism for inactive users?
+	fmt.Println("Adding user to session: ", newCoderName)
+	if addUserToSession(session, newCoderName) {
 		fmt.Fprintf(w, "SUCCESS")
+	} else {
+		fmt.Fprintf(w, "UNAMEFAILURE")
+	}
+}
+
+/*
+Helper which communicates with master to add a user to
+a python session.
+
+Returns "true" on success, "false" on failure.
+*/
+func addUserToSession(session *PythonSession, newCoderName string) bool {
+	_, ok := <-session.chMasterReady
+	if ok {
+		fmt.Println("Master was ready")
+		session.chRequestUsername <- newCoderName
+		fmt.Println("Sent user name")
+		exists := <-session.chUsernameExists
+		if exists {
+			// User already exists here.
+			return false
+		} else {
+			// TODO (master)  Multicast list of active users.
+			<-session.chMasterReady
+			session.chSetUsername <- newCoderName
+			// TODO Should there be a timeout / removal mechanism for inactive users?
+			return true
+		}
+	} else {
+		fmt.Println("Master NOT ready")
+		return false
 	}
 }
 
@@ -558,11 +655,15 @@ func showConfiguration() {
 
 }
 
-// TODO Maybe update master? We're changing the session map.
+/*
+Function which lives as goroutine for each session,
+listening to the multicaster.
+*/
 func receiveMulticast(sessionName string) {
 	ch := caster.GetMessageChan(sessionName)
 	for {
 		mi := <-ch
+		// TODO FIXME: Use master election here!
 		/* // should not happen
 		if masterId == -1 {
 			fmt.Printf("Multicast received: Setting master to %d\n", mi.MasterId)
@@ -572,12 +673,17 @@ func receiveMulticast(sessionName string) {
 		sessionName := mi.SessionName
 		session := sessionMap[sessionName]
 		if session == nil {
-			sessionMap[sessionName] = createSession()
-			session = sessionMap[sessionName]
+			// This shouls never happen -- createServer must be called
+			// before receiveMulticast.
+			os.Exit(-1)
 		}
 		codeToExecute := mi.CodeToExecute
+		userName := mi.UserName
 		if codeToExecute != "" {
+			// This message is from the master, telling us to execute code.
 			sendExecuteRequestToSessionMaster(session, codeToExecute)
+		} else if userName != "" {
+			// FIXME: new user
 		}
 	}
 }
@@ -635,7 +741,7 @@ func main() {
 	}
 
 	// search serverName in configuration
-		for i, server := range configuration.Servers {
+	for i, server := range configuration.Servers {
 		if serverName == server.Name {
 			serverId = i
 			break
@@ -645,7 +751,7 @@ func main() {
 		log.Fatal("Error: server " + serverName + " not found in configuration")
 		os.Exit(0)
 	}
-	
+
 	// search group in configuration
 	for i, group := range configuration.Groups {
 		if configuration.Servers[serverId].Group == group.Name {
@@ -657,10 +763,12 @@ func main() {
 		log.Fatal("Error: group " + configuration.Servers[serverId].Group + " not found in configuration")
 		os.Exit(0)
 	}
-	
+
 	// initialize mapElection masterId (max one in the group) by serverId and groupId
 	first := -1
 	masterId = -1
+	// FIXME FIXME FIXME THIS IS A HACK, NOT AN ELECTION. LOWEST IN
+	// CONFIG FILE BECOMES MASTER.
 	for i, server := range configuration.Servers {
 		if configuration.Groups[groupId].Name == server.Group {
 			if first == -1 {
@@ -677,21 +785,23 @@ func main() {
 	// initialize heartbeat
 	if serverId == masterId {
 		// master should monitor all slaves excluding itself
-		slaves := make([]string, len(configuration.Servers) - 1)
+		slaves := make([]string, len(configuration.Servers)-1)
 		i := 0
 		for id, server := range configuration.Servers {
 			if id == serverId {
 				continue
 			}
-			slaves[i] = server.IP + ":" + server.Heartbeat
-			i++
+			if configuration.Groups[groupId].Name == server.Group {
+				slaves[i] = server.IP + ":" + server.Heartbeat
+				i++
+			}
 		}
 		fmt.Println("slaves = ", slaves)
-		heartbeatManager.Initialize(configuration.Servers[serverId].IP + ":" + configuration.Servers[serverId].Heartbeat, slaves, slaves)
+		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, slaves, slaves)
 	} else {
 		master := []string{configuration.Servers[masterId].IP + ":" + configuration.Servers[masterId].Heartbeat}
 		fmt.Println("master = ", master)
-		heartbeatManager.Initialize(configuration.Servers[serverId].IP + ":" + configuration.Servers[serverId].Heartbeat, master, master)
+		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, master, master)
 	}
 	
 
