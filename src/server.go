@@ -99,7 +99,7 @@ var (
 	configuration    = new(Configuration)
 	serverId         = -1
 	masterId         = -1
-	groupId          = -1 // TODO SET FROM CONF. REDIRECT.
+	groupId          = -1
 	caster           = multicaster.Multicaster{}
 	mutex            = &sync.Mutex{}
 	mapElection      = make(map[int]int)
@@ -254,9 +254,7 @@ func redirectToCorrectSession(sessionName string, w http.ResponseWriter, r *http
 }
 
 func sendExecuteRequestToSessionMaster(session *PythonSession, codeToExecute string) {
-	fmt.Println("About to ask if master is ready")
 	_, ok := <-session.chMasterReady
-	fmt.Println("Got OK from master session")
 	if ok {
 		fmt.Println("writing to active session.")
 		session.chExecuteCode <- codeToExecute // Must request that master handle session.
@@ -283,7 +281,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// ... and send that code to the master to be written to the session.
 	if masterId == serverId { // (masterId == -1) should not happen
-		multicastCode(session, codeToExecute, sessionName)
+		multicastExecuteCode(session, codeToExecute, sessionName)
 	} else {
 		// Send the request to the master.
 		s := configuration.Servers[masterId]
@@ -306,7 +304,8 @@ func multicastStartSession(sessionName string) bool {
 	mi.CodeToExecute = sessionName
 	mi.MasterId = serverId
 	fmt.Println("(master) : about to multicast StartSession: ", sessionName)
-	if caster.Multicast(sessionName, mi, 5) {
+	// The session is nil -- no need to lock.
+	if caster.Multicast("SESSION_CREATOR", mi, 5) {
 		fmt.Println("(master) : multicast succeeded.")
 		fmt.Println("(master) : creating new sesion: ", sessionName)
 		session := sessionMap[sessionName]
@@ -323,8 +322,28 @@ func multicastStartSession(sessionName string) bool {
 	return false
 }
 
-// Helper function to multicast CODE from MASTER --> REPLICAS
-func multicastCode(s *PythonSession, code, sessionName string) {
+// Helper function to multicast TYPED CODE from MASTER --> REPLICAS
+func multicastTypedCode(s *PythonSession, code, user, sessionName string) {
+	if masterId != serverId {
+		panic("Only master should multicast")
+	}
+	mi := multicaster.MessageInfo{}
+	mi.SessionName = sessionName
+	mi.UserName = user
+	mi.TypedCode = code
+	mi.MasterId = serverId
+	s.multicastMutex.Lock()
+	defer s.multicastMutex.Unlock()
+	if caster.Multicast(sessionName, mi, 5) {
+		fmt.Println("Multicast typed code to session SUCCESS")
+		s.userMap[user].userCode = code
+	} else {
+		fmt.Println("Multicast typed code to session FAILURE")
+	}
+}
+
+// Helper function to multicast EXECUTED CODE from MASTER --> REPLICAS
+func multicastExecuteCode(s *PythonSession, code, sessionName string) {
 	if masterId != serverId {
 		panic("Only master should multicast")
 	}
@@ -333,6 +352,7 @@ func multicastCode(s *PythonSession, code, sessionName string) {
 	mi.CodeToExecute = code
 	mi.MasterId = serverId
 	s.multicastMutex.Lock()
+	defer s.multicastMutex.Unlock()
 	if caster.Multicast(sessionName, mi, 5) {
 		fmt.Println("Multicast code to session SUCCESS")
 		// The master can only apply the request locally if
@@ -341,7 +361,6 @@ func multicastCode(s *PythonSession, code, sessionName string) {
 	} else {
 		fmt.Println("Multicast code to session FAILURE")
 	}
-	s.multicastMutex.Unlock()
 }
 
 // Helper function to multicast USERNAME from MASTER --> REPLICAS.
@@ -377,7 +396,6 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
 	session := sessionMap[sessionName]
 	if session == nil {
 		return
@@ -430,19 +448,31 @@ TODO: Multicast user code between all servers.
 */
 func readpartnercodeHandler(w http.ResponseWriter, r *http.Request) {
 	sessionName := r.FormValue("sessionName")
+	// This is the user calling, giving us information about their code.
 	userName := r.FormValue("userName")
 	userCode := r.FormValue("userCode")
+	// This is the partner, that the user wants information about.
 	partnerName := r.FormValue("partnerName")
 
 	// TODO SECURITY.
 	session := sessionMap[sessionName]
+	// If the session exists...
 	if session != nil && session.cmd != nil {
-		session.userMap[userName].userCode = userCode
-		userInfo := session.userMap[partnerName]
-		if userInfo == nil {
-			fmt.Fprintf(w, "")
-		} else {
-			fmt.Fprintf(w, userInfo.userCode)
+		if masterId == serverId { // And we're the master...
+			multicastTypedCode(session, userCode, userName, sessionName)
+			// Regardless of multicast, return partner code...
+			userInfo := session.userMap[partnerName]
+			if userInfo == nil {
+				fmt.Fprintf(w, "")
+			} else {
+				fmt.Fprintf(w, userInfo.userCode)
+			}
+		} else { // And we're a replica...
+			// Send the request to the master.
+			s := configuration.Servers[masterId]
+			newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+			fmt.Println("\tRedirecting to ", newURL)
+			http.Redirect(w, r, newURL, 307)
 		}
 	}
 }
@@ -629,9 +659,7 @@ Returns "true" on success, "false" on failure.
 func addUserToSession(session *PythonSession, newCoderName string) bool {
 	_, ok := <-session.chMasterReady
 	if ok {
-		fmt.Println("Master was ready")
 		session.chRequestUsername <- newCoderName
-		fmt.Println("Sent user name")
 		exists := <-session.chUsernameExists
 		if exists {
 			// User already exists here.
@@ -736,10 +764,7 @@ func receiveMulticastSessionInitializer() {
 	}
 }
 
-/*
-Function which lives as goroutine for each session,
-listening to the multicaster.
-*/
+// Goroutine for each session, listening to the multicaster.
 func receiveMulticast(sessionName string) {
 	ch := caster.GetMessageChan(sessionName)
 	for {
@@ -761,7 +786,11 @@ func receiveMulticast(sessionName string) {
 		}
 		codeToExecute := mi.CodeToExecute
 		userName := mi.UserName
-		if codeToExecute != "" {
+		typedCode := mi.TypedCode
+		if typedCode != "" && userName != "" {
+			// This message is from the master, updating us about this user's code.
+			session.userMap[userName].userCode = typedCode
+		} else if codeToExecute != "" {
 			// This message is from the master, telling us to execute code.
 			sendExecuteRequestToSessionMaster(session, codeToExecute)
 		} else if userName != "" {
