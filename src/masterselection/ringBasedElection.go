@@ -85,6 +85,9 @@ func UpdateLinkedMap(id int, m map[int]int){
 			break
 		}
 	}
+	for key, value := range m{
+		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
+	}
 }
 /*
 func main(){
