@@ -31,7 +31,10 @@ type Multicaster struct{
 func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 	info := MessageInfo{}
 	sName := message.Session
-	if message.Type == "election"{
+	if message.Type == "dltMem"{
+		this.owner.RemoveMemLocal(message.MemToDlt)
+		*reply = "ack"
+	}else if message.Type == "election"{
 		*reply = "ack"
 		this.owner.emChan <- message.Em
 	} else if message.Type == "message" {
@@ -155,8 +158,19 @@ func (this *Multicaster) RemoveMemLocal(memID string){
 }
 
 func (this *Multicaster) RemoveMemInGroup(memID string) bool{
+	ret := true
 	this.RemoveMemLocal(memID)
-	return true
+	message := Message{this.members["#"], "", memID, MessageInfo{}, ElectionMsg{}, "dltMem", "#delete"}
+	for key := range this.members {
+		//skip on sending message to itself
+		if key == "#"{
+			continue
+		}
+
+		message.Dest = this.members[key]
+		ret = (this.sendMessage(message) == "ack")
+	}
+	return ret
 }
 
 /*
@@ -167,7 +181,7 @@ func (this *Multicaster) RemoveMemInGroup(memID string) bool{
 */
 func (this *Multicaster) Multicast(sName string, info MessageInfo, timeout int) bool{
 	message := Message{this.members["#"], "", "", info, ElectionMsg{}, "message", sName}
-	return this.mltcast(message, 1)
+	return this.mltcast(message, timeout)
 }
 
 func (this *Multicaster) mltcast(message Message, timeout int) bool{
