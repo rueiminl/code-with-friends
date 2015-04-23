@@ -710,7 +710,6 @@ func checkDead() {
 			
 		} else {
 			// slave aware that master has dead
-			masterelection.UpdateLinkedMap(masterId, mapElection)
 			fmt.Println("QualifiedToRaise")
 			if masterelection.QualifiedToRaise(serverId, masterId, mapElection, &masterId) {
 				fmt.Println("RaiseElection")
@@ -724,6 +723,7 @@ func checkDead() {
 					}
 				}
 			}
+			masterelection.UpdateLinkedMap(masterId, mapElection)
 			// ... notify multicaster
 		}
 	}
