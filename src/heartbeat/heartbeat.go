@@ -98,7 +98,7 @@ func (this *Heartbeat) RecvFrom() {
 	}
 }
 
-func main() {
+func sampleTest() {
 	master_addr := "127.0.0.1:10001"
 	slave1_addr := "127.0.0.1:10002"
 	slave2_addr := "127.0.0.1:10003"
@@ -109,9 +109,11 @@ func main() {
 	master_heartbeat.Initialize(master_addr, slave_addrs, slave_addrs)
 	slave1_heartbeat := new(Heartbeat)
 	slave1_heartbeat.Initialize(slave1_addr, master_addrs, master_addrs)
+	// remove slave2_heartbeat to test dead function
 	// slave2_heartbeat := new(Heartbeat)
 	// slave2_heartbeat.Initialize(slave2_addr, master_addrs, master_addrs)
 
+	// need receive at least one notification (packet) to start detection
 	time.Sleep(time.Second * 3)
 	master_udpaddr, err := net.ResolveUDPAddr("udp", master_addr)
 	CheckError(err)
