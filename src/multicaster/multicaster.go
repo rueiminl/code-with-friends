@@ -5,6 +5,8 @@ import (
     "net"
     "net/rpc"
     "time"
+    "masterelection"
+    "strconv"
 )
 
 type PasserRPC struct{
@@ -20,6 +22,7 @@ type Multicaster struct{
 	ackChans map[string]chan string
 	messageChans map[string]chan MessageInfo
 	emChan chan ElectionMsg
+	eleMap *map[int]int
 }
 
 /*to recieve a Message from another node
@@ -33,6 +36,8 @@ func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 	sName := message.Session
 	if message.Type == "dltMem"{
 		this.owner.RemoveMemLocal(message.MemToDlt)
+		i, _ := strconv.ParseInt(message.MemToDlt, 0, 64)
+		masterelection.UpdateLinkedMap(i, this.owner.eleMap)
 		*reply = "ack"
 	}else if message.Type == "election"{
 		*reply = "ack"
@@ -105,6 +110,10 @@ func (this *Multicaster) sendMessage(message Message) string {
     	fmt.Println(err)
     }
     return result
+}
+
+func (this *Multicaster) SetMapElection(eMap *map[int]int){
+	this.eleMap = eMap
 }
 
 /*
