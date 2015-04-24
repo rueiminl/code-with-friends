@@ -240,7 +240,7 @@ func redirectToCorrectSession(sessionName string, w http.ResponseWriter, r *http
 		fmt.Println("Redirecting request to the appropriate group: ", desiredGroupId)
 		for _, s := range configuration.Servers {
 			if s.Group == desiredGroup.Name {
-				newURL := "http://" + s.IP + ":" + s.HttpPort // + r.URL.Path
+				newURL := "https://" + s.IP + ":" + s.HttpPort // + r.URL.Path
 				fmt.Println("\tRedirecting to ", newURL)
 				fmt.Fprintf(w, newURL)
 				return true
@@ -285,7 +285,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Send the request to the master.
 		s := configuration.Servers[masterId]
-		newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+		newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
 		fmt.Println("\tRedirecting to ", newURL)
 		http.Redirect(w, r, newURL, 307)
 	}
@@ -470,7 +470,7 @@ func readpartnercodeHandler(w http.ResponseWriter, r *http.Request) {
 		} else { // And we're a replica...
 			// Send the request to the master.
 			s := configuration.Servers[masterId]
-			newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+			newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
 			fmt.Println("\tRedirecting to ", newURL)
 			http.Redirect(w, r, newURL, 307)
 		}
@@ -641,9 +641,9 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 	} else if masterId != serverId {
 		// Send the request to the master.
 		s := configuration.Servers[masterId]
-		newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+		newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
 		fmt.Println("\tRedirecting to ", newURL)
-		http.Redirect(w, r, newURL, 307)
+		http.Redirect(w, r, newURL, http.StatusTemporaryRedirect)
 		return
 	}
 	// Failure case
@@ -970,5 +970,9 @@ func main() {
 		return
 	}
 
-	http.ListenAndServe(":"+configuration.Servers[serverId].HttpPort, nil)
+	ip := configuration.Servers[serverId].IP
+	http.ListenAndServeTLS(":"+configuration.Servers[serverId].HttpPort,
+		os.Getenv("GOPATH")+"keys/"+ip+".cert",
+		os.Getenv("GOPATH")+"keys/"+ip+".key",
+		nil)
 }
