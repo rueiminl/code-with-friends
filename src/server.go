@@ -843,7 +843,7 @@ func checkDead() {
 					}
 				}
 			}
-			multicasters.UpdateLinkedMap(masterId, mapElection)
+			multicaster.UpdateLinkedMap(masterId, mapElection)
 		}
 	}
 }
