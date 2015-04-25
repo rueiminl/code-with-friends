@@ -839,13 +839,13 @@ func checkDead() {
 			electionChan := caster.GetEmChan()
 			fmt.Println("start loop")
 			for {
-					em := <-electionChan
-					fmt.Println(em.NewMasterId)
-					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
-						fmt.Println("Master settle, new master is: " + strconv.Itoa(masterId))
-						InitializeHeartbeat(false)
-						break
-					}
+				em := <-electionChan
+				fmt.Println(em.NewMasterId)
+				if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
+					fmt.Println("Master settle, new master is: " + strconv.Itoa(masterId))
+					InitializeHeartbeat(false)
+					break
+				}
 			}
 			fmt.Println("oldMaster: " + strconv.Itoa(oldMaster))
 			multicaster.UpdateLinkedMap(oldMaster, mapElection)
@@ -868,7 +868,7 @@ func InitializeHeartbeat(first bool) {
 			}
 		}
 		fmt.Println("slaves = ", slaves)
-		if (first) {
+		if first {
 			heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, slaves, slaves)
 		} else {
 			heartbeatManager.Update(slaves, slaves)
@@ -876,14 +876,14 @@ func InitializeHeartbeat(first bool) {
 	} else {
 		master := []string{configuration.Servers[masterId].IP + ":" + configuration.Servers[masterId].Heartbeat}
 		fmt.Println("master = ", master)
-		if (first) {
+		if first {
 			heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, master, master)
 		} else {
 			heartbeatManager.Update(master, master)
 		}
 	}
 }
-	
+
 func main() {
 	// server name should be the first argument
 	if len(os.Args) < 2 {
