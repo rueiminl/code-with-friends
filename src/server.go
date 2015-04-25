@@ -832,7 +832,8 @@ func checkDead() {
 				fmt.Println("RaiseElection")
 				masterelection.RaiseElection(serverId, caster, mapElection)
 				electionChan := caster.GetEmChan()
-				fmt.Println("start loop")
+				fmt.Println("s
+					tart loop")
 				for {
 					em := <-electionChan
 					fmt.Println(em.NewMasterId)
