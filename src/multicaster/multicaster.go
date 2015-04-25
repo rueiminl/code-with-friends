@@ -5,7 +5,7 @@ import (
     "net"
     "net/rpc"
     "time"
-    "masterelection"
+    "masterselection"
     "strconv"
 )
 
