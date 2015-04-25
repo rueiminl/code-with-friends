@@ -8,11 +8,9 @@ import (
 	"heartbeat"
 	"html/template"
 	"io"
-	"io/ioutil"
 	"log"
 	"masterselection"
 	"multicaster"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -930,7 +928,8 @@ func main() {
 	}
 
 	// initialize multicast
-	caster.Initialize(configuration.Servers[serverId].Port)
+	caster.Initialize(configuration.Servers[serverId].IP,
+		configuration.Servers[serverId].Port)
 	for i, server := range configuration.Servers {
 		if serverId == i {
 			continue
@@ -956,19 +955,20 @@ func main() {
 	http.HandleFunc("/joinsession/", makeHandler(joinsessionHandler))
 	http.HandleFunc("/resetsession/", makeHandler(resetsessionHandler))
 
-	if *addr {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = ioutil.WriteFile("final-port.txt", []byte(l.Addr().String()), 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-		s := &http.Server{}
-		s.Serve(l)
-		return
-	}
+	/*
+		if *addr {
+			l, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				log.Fatal(err)
+			}
+			err = ioutil.WriteFile("final-port.txt", []byte(l.Addr().String()), 0644)
+			if err != nil {
+				log.Fatal(err)
+			}
+			s := &http.Server{}
+			s.Serve(l)
+			return
+		}*/
 
 	ip := configuration.Servers[serverId].IP
 	http.ListenAndServeTLS(":"+configuration.Servers[serverId].HttpPort,
