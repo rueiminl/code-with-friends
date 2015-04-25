@@ -239,8 +239,8 @@
                             swapbox.appendChild(node);
                         }
                     }
-                    pollForActiveUsers();
                 },
+                complete: pollForActiveUsers,
                 timeout: 1000
             })
         }, pollForActiveUsersDelay);
@@ -267,8 +267,8 @@
                        partnerName: $("#partnerName").text()},
                 success: function(data) {
                     partnerEditor.getSession().setValue(data);
-                    pollForPartnerCode();
                 },
+                complete: pollForPartnerCode,
                 timeout: 1000
             })
         }, pollForPartnerCodeDelay);
@@ -316,9 +316,8 @@
                         })
                         pollForExecutedCodeDelay = 1000;
                     }
-
-                    pollForExecutedCode()
                 },
+                complete: pollForExecutedCode,
                 timeout: pollForExecutedCodeDelay
             })
         }, pollForExecutedCodeDelay);

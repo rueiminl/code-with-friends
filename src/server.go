@@ -663,7 +663,6 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
-				// TODO: Create "user key"
 				userKey := generateUserKey()
 				if multicastUser(session, newCoderName, userKey, sessionName) {
 					fmt.Println("(master) : Adding user to session: ", newCoderName)
@@ -699,7 +698,6 @@ func addUserToSession(session *PythonSession, newCoderName, newCoderKey string) 
 			// User already exists here.
 			return false
 		} else {
-			// TODO (master)  Multicast list of active users.
 			<-session.chMasterReady
 			session.chSetUsername <- newCoderName
 			session.chSetUserkey <- newCoderKey
@@ -730,7 +728,7 @@ Function which continuously reads input from STDOUT/STDERR and propagates
 this information to the master.
 */
 func handlePythonSingleOutput(outPipe io.ReadCloser, s *PythonSession, stdout bool) {
-	output := make([]byte, 1000) // TODO Maybe change this from 1000 to something bigger?
+	output := make([]byte, 5000) // Maximum number of characters which can be outputted at once.
 	for {
 		n, err := outPipe.Read(output)
 		if err != nil {
@@ -805,13 +803,6 @@ func receiveMulticast(sessionName string) {
 	ch := caster.GetMessageChan(sessionName)
 	for {
 		mi := <-ch
-		// TODO FIXME: Use master election here!
-		/* // should not happen
-		if masterId == -1 {
-			fmt.Printf("Multicast received: Setting master to %d\n", mi.MasterId)
-			masterId = mi.MasterId
-		}
-		*/
 		fmt.Println("New message: ", mi)
 		sessionName := mi.SessionName
 		session := sessionMap[sessionName]
