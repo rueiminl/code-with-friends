@@ -99,7 +99,7 @@ var (
 	configuration    = new(Configuration)
 	serverId         = -1
 	masterId         = -1
-	groupId          = -1 // TODO SET FROM CONF. REDIRECT.
+	groupId          = -1
 	caster           = multicaster.Multicaster{}
 	mutex            = &sync.Mutex{}
 	mapElection      = make(map[int]int)
@@ -240,7 +240,7 @@ func redirectToCorrectSession(sessionName string, w http.ResponseWriter, r *http
 		fmt.Println("Redirecting request to the appropriate group: ", desiredGroupId)
 		for _, s := range configuration.Servers {
 			if s.Group == desiredGroup.Name {
-				newURL := "http://" + s.IP + ":" + s.HttpPort // + r.URL.Path
+				newURL := "https://" + s.IP + ":" + s.HttpPort // + r.URL.Path
 				fmt.Println("\tRedirecting to ", newURL)
 				fmt.Fprintf(w, newURL)
 				return true
@@ -254,9 +254,7 @@ func redirectToCorrectSession(sessionName string, w http.ResponseWriter, r *http
 }
 
 func sendExecuteRequestToSessionMaster(session *PythonSession, codeToExecute string) {
-	fmt.Println("About to ask if master is ready")
 	_, ok := <-session.chMasterReady
-	fmt.Println("Got OK from master session")
 	if ok {
 		fmt.Println("writing to active session.")
 		session.chExecuteCode <- codeToExecute // Must request that master handle session.
@@ -283,18 +281,69 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// ... and send that code to the master to be written to the session.
 	if masterId == serverId { // (masterId == -1) should not happen
-		multicastCode(session, codeToExecute, sessionName)
+		multicastExecuteCode(session, codeToExecute, sessionName)
 	} else {
 		// Send the request to the master.
 		s := configuration.Servers[masterId]
-		newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+		newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
 		fmt.Println("\tRedirecting to ", newURL)
 		http.Redirect(w, r, newURL, 307)
 	}
 }
 
-// Helper function to multicast CODE from MASTER --> REPLICAS
-func multicastCode(s *PythonSession, code, sessionName string) {
+// Helper function to multicast START SESSION from MASTER --> REPLICAS
+func multicastStartSession(sessionName string) bool {
+	session := sessionMap[sessionName]
+	if session != nil {
+		// Master: The session already exists -- we multicasted it earlier.
+		fmt.Println("(master): session already exists")
+		return true
+	}
+	mi := multicaster.MessageInfo{}
+	mi.SessionName = "SESSION_CREATOR"
+	mi.CodeToExecute = sessionName
+	mi.MasterId = serverId
+	fmt.Println("(master) : about to multicast StartSession: ", sessionName)
+	// The session is nil -- no need to lock.
+	if caster.Multicast("SESSION_CREATOR", mi, 5) {
+		fmt.Println("(master) : multicast succeeded.")
+		fmt.Println("(master) : creating new sesion: ", sessionName)
+		session := sessionMap[sessionName]
+		if session == nil {
+			// Master: Create session if we multicasted successfully
+			sessionMap[sessionName] = createSession(sessionName)
+			return true
+		} else {
+			panic("The session was nil, but after multicasting, we made it?")
+		}
+	} else {
+		fmt.Println("(master) : multicast StartSession FAILED")
+	}
+	return false
+}
+
+// Helper function to multicast TYPED CODE from MASTER --> REPLICAS
+func multicastTypedCode(s *PythonSession, code, user, sessionName string) {
+	if masterId != serverId {
+		panic("Only master should multicast")
+	}
+	mi := multicaster.MessageInfo{}
+	mi.SessionName = sessionName
+	mi.UserName = user
+	mi.TypedCode = code
+	mi.MasterId = serverId
+	s.multicastMutex.Lock()
+	defer s.multicastMutex.Unlock()
+	if caster.Multicast(sessionName, mi, 5) {
+		fmt.Println("Multicast typed code to session SUCCESS")
+		s.userMap[user].userCode = code
+	} else {
+		fmt.Println("Multicast typed code to session FAILURE")
+	}
+}
+
+// Helper function to multicast EXECUTED CODE from MASTER --> REPLICAS
+func multicastExecuteCode(s *PythonSession, code, sessionName string) {
 	if masterId != serverId {
 		panic("Only master should multicast")
 	}
@@ -303,6 +352,7 @@ func multicastCode(s *PythonSession, code, sessionName string) {
 	mi.CodeToExecute = code
 	mi.MasterId = serverId
 	s.multicastMutex.Lock()
+	defer s.multicastMutex.Unlock()
 	if caster.Multicast(sessionName, mi, 5) {
 		fmt.Println("Multicast code to session SUCCESS")
 		// The master can only apply the request locally if
@@ -311,7 +361,6 @@ func multicastCode(s *PythonSession, code, sessionName string) {
 	} else {
 		fmt.Println("Multicast code to session FAILURE")
 	}
-	s.multicastMutex.Unlock()
 }
 
 // Helper function to multicast USERNAME from MASTER --> REPLICAS.
@@ -347,7 +396,6 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO WHEN MULTIPLE SESSIONS EXIST Lookup the sesion here.
 	session := sessionMap[sessionName]
 	if session == nil {
 		return
@@ -400,19 +448,31 @@ TODO: Multicast user code between all servers.
 */
 func readpartnercodeHandler(w http.ResponseWriter, r *http.Request) {
 	sessionName := r.FormValue("sessionName")
+	// This is the user calling, giving us information about their code.
 	userName := r.FormValue("userName")
 	userCode := r.FormValue("userCode")
+	// This is the partner, that the user wants information about.
 	partnerName := r.FormValue("partnerName")
 
 	// TODO SECURITY.
 	session := sessionMap[sessionName]
+	// If the session exists...
 	if session != nil && session.cmd != nil {
-		session.userMap[userName].userCode = userCode
-		userInfo := session.userMap[partnerName]
-		if userInfo == nil {
-			fmt.Fprintf(w, "")
-		} else {
-			fmt.Fprintf(w, userInfo.userCode)
+		if masterId == serverId { // And we're the master...
+			multicastTypedCode(session, userCode, userName, sessionName)
+			// Regardless of multicast, return partner code...
+			userInfo := session.userMap[partnerName]
+			if userInfo == nil {
+				fmt.Fprintf(w, "")
+			} else {
+				fmt.Fprintf(w, userInfo.userCode)
+			}
+		} else { // And we're a replica...
+			// Send the request to the master.
+			s := configuration.Servers[masterId]
+			newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
+			fmt.Println("\tRedirecting to ", newURL)
+			http.Redirect(w, r, newURL, 307)
 		}
 	}
 }
@@ -540,6 +600,7 @@ func createSession(name string) *PythonSession {
 	//fmt.Println("about to wait...")
 	go waitForSessionDeath(session)
 	go sessionMaster(session)
+	go receiveMulticast(session.sessionName)
 	return session
 }
 
@@ -565,24 +626,24 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Println("JOIN SESSION " + sessionName)
-	session := sessionMap[sessionName]
-	if session == nil {
-		sessionMap[sessionName] = createSession(sessionName)
-		go receiveMulticast(sessionName)
-	}
-	session = sessionMap[sessionName]
-	fmt.Println("Adding user to session: ", newCoderName)
 	if masterId == serverId {
-		// Master case
-		if multicastUser(session, newCoderName, sessionName) {
-			fmt.Fprintf(w, "SUCCESS")
+		fmt.Println("(master) creating session")
+		// Master case: create the session.
+		if multicastStartSession(sessionName) {
+			fmt.Println("(master) : created session")
+			session := sessionMap[sessionName]
+			// Master case: add the user.
+			if multicastUser(session, newCoderName, sessionName) {
+				fmt.Println("(master) : Adding user to session: ", newCoderName)
+				fmt.Fprintf(w, "SUCCESS")
+			}
 		}
 	} else if masterId != serverId {
 		// Send the request to the master.
 		s := configuration.Servers[masterId]
-		newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+		newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
 		fmt.Println("\tRedirecting to ", newURL)
-		http.Redirect(w, r, newURL, 307)
+		http.Redirect(w, r, newURL, http.StatusTemporaryRedirect)
 		return
 	}
 	// Failure case
@@ -598,9 +659,7 @@ Returns "true" on success, "false" on failure.
 func addUserToSession(session *PythonSession, newCoderName string) bool {
 	_, ok := <-session.chMasterReady
 	if ok {
-		fmt.Println("Master was ready")
 		session.chRequestUsername <- newCoderName
-		fmt.Println("Sent user name")
 		exists := <-session.chUsernameExists
 		if exists {
 			// User already exists here.
@@ -690,10 +749,22 @@ func showConfiguration() {
 
 }
 
-/*
-Function which lives as goroutine for each session,
-listening to the multicaster.
-*/
+// Function from which REPLICAS create a session.
+func receiveMulticastSessionInitializer() {
+	ch := caster.GetMessageChan("SESSION_CREATOR")
+	for {
+		mi := <-ch
+		fmt.Println("(receive session initializer) New message: ", mi)
+		sessionName := mi.CodeToExecute
+		session := sessionMap[sessionName]
+		if session == nil {
+			// Replica: Create a session only here.
+			sessionMap[sessionName] = createSession(sessionName)
+		}
+	}
+}
+
+// Goroutine for each session, listening to the multicaster.
 func receiveMulticast(sessionName string) {
 	ch := caster.GetMessageChan(sessionName)
 	for {
@@ -715,7 +786,11 @@ func receiveMulticast(sessionName string) {
 		}
 		codeToExecute := mi.CodeToExecute
 		userName := mi.UserName
-		if codeToExecute != "" {
+		typedCode := mi.TypedCode
+		if typedCode != "" && userName != "" {
+			// This message is from the master, updating us about this user's code.
+			session.userMap[userName].userCode = typedCode
+		} else if codeToExecute != "" {
 			// This message is from the master, telling us to execute code.
 			sendExecuteRequestToSessionMaster(session, codeToExecute)
 		} else if userName != "" {
@@ -740,17 +815,20 @@ func checkDead() {
 		fmt.Println(dead)
 		deadId := -1
 		if serverId == masterId {
+			// master get a notification that a slave has been dead
 			for i, server := range configuration.Servers {
 				if dead == server.IP+":"+server.Heartbeat {
 					deadId = i
 					break
 				}
 			}
+			caster.RemoveMemInGroup(configuration.Servers[deadId].Name)
 			fmt.Println("UpdateLinkedMap")
 			masterelection.UpdateLinkedMap(deadId, mapElection)
-			
+			// TODO notify slaves to UpdateLinkedMap
 		} else {
-			// slave aware that master has dead
+			// slave get the notification that the master has been dead
+			caster.RemoveMemLocal(configuration.Servers[masterId].Name)
 			fmt.Println("QualifiedToRaise")
 			if masterelection.QualifiedToRaise(serverId, masterId, mapElection, &masterId) {
 				fmt.Println("RaiseElection")
@@ -759,13 +837,11 @@ func checkDead() {
 				for {
 					em := <-electionChan
 					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
-						// TODO notify multicaster
 						break
 					}
 				}
 			}
 			masterelection.UpdateLinkedMap(masterId, mapElection)
-			// TODO notify multicaster
 		}
 	}
 }
@@ -863,6 +939,8 @@ func main() {
 			caster.AddMember(server.Name, server.IP+":"+server.Port)
 		}
 	}
+	caster.AddSession("SESSION_CREATOR")
+	go receiveMulticastSessionInitializer()
 	// debug only
 	showConfiguration()
 	go checkDead()
@@ -892,5 +970,9 @@ func main() {
 		return
 	}
 
-	http.ListenAndServe(":"+configuration.Servers[serverId].HttpPort, nil)
+	ip := configuration.Servers[serverId].IP
+	http.ListenAndServeTLS(":"+configuration.Servers[serverId].HttpPort,
+		os.Getenv("GOPATH")+"keys/"+ip+".cert",
+		os.Getenv("GOPATH")+"keys/"+ip+".key",
+		nil)
 }
