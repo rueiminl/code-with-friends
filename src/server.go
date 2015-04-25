@@ -23,7 +23,7 @@ import (
 
 /*
 Message returned from master, detailing information about a requested ioNumber.
-The response will only include a valid requestedIo string if the currentIoNumber
+The response will only include a valid requestedIo string if the currentIƒoNumber
 is greater than the requested io number.
 */
 type ioNumberResponse struct {
