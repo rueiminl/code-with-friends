@@ -23,7 +23,7 @@ import (
 
 /*
 Message returned from master, detailing information about a requested ioNumber.
-The response will only include a valid requestedIo string if the currentIoNumber
+The response will only include a valid requestedIo string if the currentIƒoNumber
 is greater than the requested io number.
 */
 type ioNumberResponse struct {
@@ -822,7 +822,7 @@ func checkDead() {
 			}
 			caster.RemoveMemInGroup(configuration.Servers[deadId].Name)
 			fmt.Println("UpdateLinkedMap")
-			masterelection.UpdateLinkedMap(deadId, mapElection)
+			multicaster.UpdateLinkedMap(deadId, mapElection)
 			// TODO notify slaves to UpdateLinkedMap
 		} else {
 			// slave get the notification that the master has been dead
@@ -842,7 +842,7 @@ func checkDead() {
 					}
 				}
 			}
-			masterelection.UpdateLinkedMap(masterId, mapElection)
+			multicaster.UpdateLinkedMap(masterId, mapElection)
 		}
 	}
 }

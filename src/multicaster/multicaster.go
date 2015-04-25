@@ -5,7 +5,6 @@ import (
     "net"
     "net/rpc"
     "time"
-    "masterselection"
     "strconv"
 )
 
@@ -37,7 +36,7 @@ func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 	if message.Type == "dltMem" {
 		this.owner.RemoveMemLocal(message.MemToDlt)
 		i, _ := strconv.ParseInt(message.MemToDlt, 0, 64)
-		masterelection.UpdateLinkedMap(i, this.owner.eleMap)
+		UpdateLinkedMap(i, this.owner.eleMap)
 		*reply = "ack"
 	} else if message.Type == "election" {
 		*reply = "ack"
@@ -90,6 +89,22 @@ func (this *Multicaster) portListenner(port string) {
 		}
 		go rpc.ServeConn(conn)
 	}
+}
+
+/*
+If some node die, update the linked map list.
+*/
+func UpdateLinkedMap(id int, m *map[int]int){
+	for key, value := range m {
+		if value == id {
+			m[key] = m[id]
+			delete(m, id)
+			break
+		}
+	}
+	for key, value := range m {
+		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
+	}	
 }
 
 /*

@@ -20,7 +20,7 @@ slaves will check if they're qualified to raise the master Election
 func QualifiedToRaise(id int, master int, m map[int]int, masterId *int) bool{
 	if value, ok := m[id]; ok {
 		if value == master {
-			UpdateLinkedMap(master, m)
+			multicaster.UpdateLinkedMap(master, m)
 			if len(m) == 1 {
 				*masterId = id
 				fmt.Println("You are now the only one remain in the server")
@@ -82,22 +82,6 @@ func ReadElectionMsg(id int, msg multicaster.ElectionMsg, caster multicaster.Mul
 		caster.SendElectionMessage(strconv.Itoa(m[id]), msg)
 	}
 	return false
-}
-
-/*
-If some node die, update the linked map list.
-*/
-func UpdateLinkedMap(id int, m map[int]int){
-	for key, value := range m {
-		if value == id {
-			m[key] = m[id]
-			delete(m, id)
-			break
-		}
-	}
-	for key, value := range m {
-		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
-	}
 }
 /*
 func main(){
