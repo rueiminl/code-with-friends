@@ -119,16 +119,15 @@ func (this *Multicaster) SetMapElection(eMap *map[int]int){
 /*
 * this function should be called before multicaster being used
  */
-func (this *Multicaster) Initialize(newPort string) {
+func (this *Multicaster) Initialize(ip, newPort string) {
 	this.members = make(map[string]string)
 	this.port = newPort
-	//this.members["#"] = "127.0.0.1:" + newPort
 	this.passer.ackChans = make(map[string]chan string)
 	this.ackChans = make(map[string]chan string)
 	this.messageChans = make(map[string]chan MessageInfo)
 	this.emChan = make(chan ElectionMsg, 1024)
 	this.members = make(map[string]string)
-	this.members["#"] = "127.0.0.1:" + this.port
+	this.members["#"] = ip + ":" + newPort
 	this.AddSession("#delete")
 	go this.portListenner(":" + this.port)
 }
