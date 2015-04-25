@@ -21,7 +21,7 @@ type Multicaster struct {
 	ackChans     map[string]chan string
 	messageChans map[string]chan MessageInfo
 	emChan chan ElectionMsg
-	eleMap *map[int]int
+	eleMap map[int]int
 }
 
 /*to recieve a Message from another node
@@ -35,8 +35,8 @@ func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 	sName := message.Session
 	if message.Type == "dltMem" {
 		this.owner.RemoveMemLocal(message.MemToDlt)
-		i, _ := strconv.ParseInt(message.MemToDlt, 0, 64)
-		UpdateLinkedMap(i, this.owner.eleMap)
+		i, _ := strconv.ParseInt(message.MemToDlt, 0, 32)
+		UpdateLinkedMap(int(i), this.owner.eleMap)
 		*reply = "ack"
 	} else if message.Type == "election" {
 		*reply = "ack"
@@ -94,7 +94,7 @@ func (this *Multicaster) portListenner(port string) {
 /*
 If some node die, update the linked map list.
 */
-func UpdateLinkedMap(id int, m *map[int]int){
+func UpdateLinkedMap(id int, m map[int]int){
 	for key, value := range m {
 		if value == id {
 			m[key] = m[id]
@@ -127,7 +127,7 @@ func (this *Multicaster) sendMessage(message Message) string {
 	return result
 }
 
-func (this *Multicaster) SetMapElection(eMap *map[int]int){
+func (this *Multicaster) SetMapElection(eMap map[int]int){
 	this.eleMap = eMap
 }
 
