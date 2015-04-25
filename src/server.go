@@ -843,7 +843,7 @@ func checkDead() {
 					fmt.Println(em.NewMasterId)
 					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
 						fmt.Println("Master settle, new master is: " + strconv.Itoa(masterId))
-						InitializeHeartbeat()
+						InitializeHeartbeat(false)
 						break
 					}
 			}
@@ -853,7 +853,7 @@ func checkDead() {
 	}
 }
 
-func InitializeHeartbeat() {
+func InitializeHeartbeat(first bool) {
 	if serverId == masterId {
 		// master should monitor all slaves excluding itself
 		slaves := make([]string, len(configuration.Servers)-1)
@@ -868,11 +868,19 @@ func InitializeHeartbeat() {
 			}
 		}
 		fmt.Println("slaves = ", slaves)
-		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, slaves, slaves)
+		if (first) {
+			heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, slaves, slaves)
+		} else {
+			heartbeatManager.Update(slaves, slaves)
+		}
 	} else {
 		master := []string{configuration.Servers[masterId].IP + ":" + configuration.Servers[masterId].Heartbeat}
 		fmt.Println("master = ", master)
-		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, master, master)
+		if (first) {
+			heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, master, master)
+		} else {
+			heartbeatManager.Update(master, master)
+		}
 	}
 }
 	
@@ -938,7 +946,7 @@ func main() {
 	mapElection[masterId] = first
 
 	// initialize heartbeat
-	InitializeHeartbeat()
+	InitializeHeartbeat(true)
 
 	// initialize multicast
 	caster.Initialize(configuration.Servers[serverId].IP,
