@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"masterselection"
+	"math/rand"
 	"multicaster"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 /*
@@ -43,6 +45,7 @@ type ioMapWriteRequest struct {
 
 type userInfo struct {
 	userCode string // Code currently being typed by user.
+	userKey  string // A session-temporary key used to identify this user.
 }
 
 /*
@@ -64,6 +67,7 @@ type PythonSession struct {
 	chRequestUsername   chan string             // INPUT : "Does this user exist?"
 	chUsernameExists    chan bool               // OUTPUT : Reponse from master, "user exists"
 	chSetUsername       chan string             // INPUT : Add this user to the session.
+	chSetUserkey        chan string             // INPUT : Add this user's key to the session.
 	chRequestIoNumber   chan int                // INPUT : A goroutine is requesting the value of a particular io number.
 	chResponseIoNumber  chan *ioNumberResponse  // OUTPUT : Response from master regarding requested io number.
 	chIoMapWriteRequest chan *ioMapWriteRequest // INPUT : Request to write to ioMap.
@@ -152,6 +156,8 @@ func sessionMaster(s *PythonSession) {
 			} else {
 				fmt.Println("[SMASTER] New user in session: ", uname)
 				s.userMap[uname] = &userInfo{}
+				ukey := <-s.chSetUserkey
+				s.userMap[uname].userKey = ukey
 			}
 		// Does the user already exist in this session?
 		case uname, ok := <-s.chRequestUsername:
@@ -363,13 +369,14 @@ func multicastExecuteCode(s *PythonSession, code, sessionName string) {
 
 // Helper function to multicast USERNAME from MASTER --> REPLICAS.
 // Returns "true" on success.
-func multicastUser(s *PythonSession, user, sessionName string) bool {
+func multicastUser(s *PythonSession, user, userKey, sessionName string) bool {
 	if masterId != serverId {
 		panic("Only master should multicast")
 	}
 	mi := multicaster.MessageInfo{}
 	mi.SessionName = sessionName
 	mi.UserName = user
+	mi.UserKey = userKey
 	mi.MasterId = serverId
 	s.multicastMutex.Lock()
 	defer s.multicastMutex.Unlock()
@@ -377,7 +384,7 @@ func multicastUser(s *PythonSession, user, sessionName string) bool {
 		fmt.Println("Multicast username to session SUCCESS")
 		// The master can only add the user if all other servers
 		// have added the user as well.
-		return addUserToSession(s, user)
+		return addUserToSession(s, user, userKey)
 	} else {
 		fmt.Println("Multicast username to session FAILURE")
 		return false
@@ -442,7 +449,6 @@ func readactiveusersHandler(w http.ResponseWriter, r *http.Request) {
 
 /*
 Sets AND gets user + partner code.
-TODO: Multicast user code between all servers.
 */
 func readpartnercodeHandler(w http.ResponseWriter, r *http.Request) {
 	sessionName := r.FormValue("sessionName")
@@ -452,7 +458,7 @@ func readpartnercodeHandler(w http.ResponseWriter, r *http.Request) {
 	// This is the partner, that the user wants information about.
 	partnerName := r.FormValue("partnerName")
 
-	// TODO SECURITY.
+	// TODO SECURITY: Send user key!
 	session := sessionMap[sessionName]
 	// If the session exists...
 	if session != nil && session.cmd != nil {
@@ -505,6 +511,7 @@ func resetsessionHandler(w http.ResponseWriter, r *http.Request) {
 	session.chRequestUsername = make(chan string)
 	session.chUsernameExists = make(chan bool)
 	session.chSetUsername = make(chan string)
+	session.chSetUserkey = make(chan string)
 	session.chRequestIoNumber = make(chan int)
 	session.chResponseIoNumber = make(chan *ioNumberResponse)
 	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
@@ -563,6 +570,7 @@ func createSession(name string) *PythonSession {
 	session.chRequestUsername = make(chan string)
 	session.chUsernameExists = make(chan bool)
 	session.chSetUsername = make(chan string)
+	session.chSetUserkey = make(chan string)
 	session.chRequestIoNumber = make(chan int)
 	session.chResponseIoNumber = make(chan *ioNumberResponse)
 	session.chIoMapWriteRequest = make(chan *ioMapWriteRequest)
@@ -602,6 +610,17 @@ func createSession(name string) *PythonSession {
 	return session
 }
 
+var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func generateUserKey() string {
+	b := make([]rune, 10)
+	rand.Seed(time.Now().UTC().UnixNano())
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
+}
+
 /*
 Lets users join a session
 */
@@ -623,7 +642,9 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "UNAMEFAILURE")
 		return
 	}
+	newCoderKey := r.FormValue("newCoderKey")
 	fmt.Println("JOIN SESSION " + sessionName)
+
 	if masterId == serverId {
 		fmt.Println("(master) creating session")
 		// Master case: create the session.
@@ -631,9 +652,24 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 			fmt.Println("(master) : created session")
 			session := sessionMap[sessionName]
 			// Master case: add the user.
-			if multicastUser(session, newCoderName, sessionName) {
-				fmt.Println("(master) : Adding user to session: ", newCoderName)
-				fmt.Fprintf(w, "SUCCESS")
+			if newCoderKey != "" {
+				// Case: User claims they already are a part of the session! Are they?
+				user := session.userMap[newCoderName]
+				if user != nil && user.userKey == newCoderKey {
+					fmt.Fprintf(w, "SUCCESS"+user.userKey)
+					return
+				} else {
+					fmt.Fprintf(w, "UKEYFAILURE")
+					return
+				}
+			} else {
+				// TODO: Create "user key"
+				userKey := generateUserKey()
+				if multicastUser(session, newCoderName, userKey, sessionName) {
+					fmt.Println("(master) : Adding user to session: ", newCoderName)
+					fmt.Fprintf(w, "SUCCESS"+userKey)
+					return
+				}
 			}
 		}
 	} else if masterId != serverId {
@@ -654,7 +690,7 @@ a python session.
 
 Returns "true" on success, "false" on failure.
 */
-func addUserToSession(session *PythonSession, newCoderName string) bool {
+func addUserToSession(session *PythonSession, newCoderName, newCoderKey string) bool {
 	_, ok := <-session.chMasterReady
 	if ok {
 		session.chRequestUsername <- newCoderName
@@ -666,6 +702,7 @@ func addUserToSession(session *PythonSession, newCoderName string) bool {
 			// TODO (master)  Multicast list of active users.
 			<-session.chMasterReady
 			session.chSetUsername <- newCoderName
+			session.chSetUserkey <- newCoderKey
 			// TODO Should there be a timeout / removal mechanism for inactive users?
 			return true
 		}
@@ -785,6 +822,7 @@ func receiveMulticast(sessionName string) {
 		}
 		codeToExecute := mi.CodeToExecute
 		userName := mi.UserName
+		userKey := mi.UserKey
 		typedCode := mi.TypedCode
 		if typedCode != "" && userName != "" {
 			// This message is from the master, updating us about this user's code.
@@ -798,7 +836,7 @@ func receiveMulticast(sessionName string) {
 			// This message is from the master, telling us to execute code.
 			sendExecuteRequestToSessionMaster(session, codeToExecute)
 		} else if userName != "" {
-			if addUserToSession(session, userName) {
+			if addUserToSession(session, userName, userKey) {
 				fmt.Println("User added: ", userName)
 			} else {
 				fmt.Println("User could not be added: ", userName)

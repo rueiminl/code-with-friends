@@ -13,6 +13,7 @@ type Message struct {
 type MessageInfo struct {
 	SessionName   string
 	UserName      string
+	UserKey       string
 	TypedCode     string
 	CodeToExecute string
 	MasterId      int

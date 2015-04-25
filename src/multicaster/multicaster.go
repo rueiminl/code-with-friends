@@ -1,11 +1,11 @@
 package multicaster
 
 import (
-    "fmt"
-    "net"
-    "net/rpc"
-    "time"
-    "strconv"
+	"fmt"
+	"net"
+	"net/rpc"
+	"strconv"
+	"time"
 )
 
 type PasserRPC struct {
@@ -20,8 +20,8 @@ type Multicaster struct {
 	passer       PasserRPC
 	ackChans     map[string]chan string
 	messageChans map[string]chan MessageInfo
-	emChan chan ElectionMsg
-	eleMap map[int]int
+	emChan       chan ElectionMsg
+	eleMap       map[int]int
 }
 
 /*to recieve a Message from another node
@@ -94,7 +94,7 @@ func (this *Multicaster) portListenner(port string) {
 /*
 If some node die, update the linked map list.
 */
-func UpdateLinkedMap(id int, m map[int]int){
+func UpdateLinkedMap(id int, m map[int]int) {
 	for key, value := range m {
 		if value == id {
 			m[key] = m[id]
@@ -105,7 +105,7 @@ func UpdateLinkedMap(id int, m map[int]int){
 	fmt.Println("UpdateLinkedMap")
 	for key, value := range m {
 		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
-	}	
+	}
 }
 
 /*
@@ -125,10 +125,11 @@ func (this *Multicaster) sendMessage(message Message) string {
 	if err != nil {
 		fmt.Println(err)
 	}
+	c.Close()
 	return result
 }
 
-func (this *Multicaster) SetMapElection(eMap map[int]int){
+func (this *Multicaster) SetMapElection(eMap map[int]int) {
 	this.eleMap = eMap
 }
 

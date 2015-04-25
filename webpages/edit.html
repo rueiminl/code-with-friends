@@ -51,6 +51,7 @@
         <div class="col-md-2" style="border: 0px solid red;">
             <p>Current Session: <span id="sessionName"></span></p>
             <p>Current Username: <span id="userName"></span></p>
+            <p>Current User Key: <span id="userKey"></span></p>
             <p>Status: <span id="sessionStatus">No session</span></p>
             <form id="formresetsession" action="/resetsession/" method="POST">
                 <input id="resetsessionbutton" type="submit" class="btn btn-danger" value="Reset session" disabled />
@@ -60,6 +61,7 @@
             <form id="formnewsession" action="/joinsession/" method="POST">
                 <input type="text" name="newSessionName" id="newSessionName" placeholder="Enter Session Name"/>
                 <input type="text" name="newCoderName" id="newCoderName" placeholder="Enter Your Username"/>
+                <input type="text" name="newCoderKey" id="newCoderKey" placeholder="(optional) Session Key"/>
                 <input id="newsessionbutton" type="submit" class="btn btn-primary" value="Join session" />
             </form>
         </div>
@@ -123,16 +125,21 @@
             type: $theForm.attr('method'),
             url: $theForm.attr('action'),
             data: {newSessionName: $('#newSessionName').val(),
-                   newCoderName: $('#newCoderName').val()},
+                   newCoderName: $('#newCoderName').val(),
+                   newCoderKey: $('#newCoderKey').val()},
             success: function(data) {
                 if (data.startsWith("SUCCESS")) {
                     console.log('Yay! New session.');
+                    console.log(data)
 		            $('#sessionName').text($('#newSessionName').val());
 		            $('#userName').text($('#newCoderName').val());
+		            $('#userKey').text(data.slice("SUCCESS".length));
                 } else if (data == "UNAMEFAILURE") {
                     alert("Try inputting different username. That one is not available.");
                 } else if (data == "SNAMEFAILURE") {
                     alert("Try inputting different session name. That one is not available. (Session names may not start with #) ");
+                } else if (data == "UKEYFAILURE") {
+                    alert("That is not a valid key for your username. Leave that field blank.");
                 } else {
                     alert("Try joining that session from this server instead");
                     window.location = data;
@@ -164,7 +171,7 @@
 
     var pollForActiveSessionDelay = 1000;
     (function pollForActiveSession() {
-        setTimeout(function() {
+        t = setTimeout(function() {
             if ($("#sessionName").text() == "") {
 				setTimeout(pollForActiveSession, 1000);
                 return;
@@ -183,9 +190,14 @@
                         pollForActiveSessionDelay = 2500;
                     } else if (data == "DEAD") {
                         mycodebutton.disabled = true;
+                        pollForActiveSessionDelay = 5000;
                     }
+                    pollForActiveSession();
                 },
-                complete: pollForActiveSession,
+                error: function(XMLHttpRequest, textStatus, errorThrown) {
+                    alert("The session looks like it has died. Try connecting to a different server");
+                    clearTimeout(t);
+                },
                 timeout: 1000
             })
         }, pollForActiveSessionDelay);
@@ -227,18 +239,18 @@
                             swapbox.appendChild(node);
                         }
                     }
+                    pollForActiveUsers();
                 },
-                complete: pollForActiveUsers,
                 timeout: 1000
             })
         }, pollForActiveUsersDelay);
     })();
 
-    var pollForPartnerCodeDelay = 1000;
+    var pollForPartnerCodeDelay = 2000;
     (function pollForPartnerCode() {
         setTimeout(function() {
             if ($("#sessionName").text() == "") {
-				setTimeout(pollForPartnerCode, 1000);
+				setTimeout(pollForPartnerCode, 2000);
                 return;
             }
 
@@ -255,9 +267,9 @@
                        partnerName: $("#partnerName").text()},
                 success: function(data) {
                     partnerEditor.getSession().setValue(data);
+                    pollForPartnerCode();
                 },
-                complete: pollForPartnerCode,
-                timeout: pollForPartnerCodeDelay
+                timeout: 1000
             })
         }, pollForPartnerCodeDelay);
     })();
@@ -304,8 +316,9 @@
                         })
                         pollForExecutedCodeDelay = 1000;
                     }
+
+                    pollForExecutedCode()
                 },
-                complete: pollForExecutedCode,
                 timeout: pollForExecutedCodeDelay
             })
         }, pollForExecutedCodeDelay);
