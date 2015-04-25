@@ -17,11 +17,11 @@
 
     #infobox {
         height: 250px;
-        border: 2px solid blue;
+        border: 0px solid blue;
     }
 
     #inputcodebox {
-        border: 2px solid green;
+        border: 0px solid green;
     }
 
     #formresetsession {
@@ -48,7 +48,7 @@
         <div class="col-md-10" id="executedCode">
             <pre class="bg-primary">Welcome to Code With Friends!</pre>
         </div>
-        <div class="col-md-2" style="border: 2px solid red;">
+        <div class="col-md-2" style="border: 0px solid red;">
             <p>Current Session: <span id="sessionName"></span></p>
             <p>Current Username: <span id="userName"></span></p>
             <p>Status: <span id="sessionStatus">No session</span></p>
@@ -56,7 +56,7 @@
                 <input id="resetsessionbutton" type="submit" class="btn btn-danger" value="Reset session" disabled />
             </form>
         </div>
-        <div class="col-md-2" style="border: 2px solid red;">
+        <div class="col-md-2" style="border: 0px solid red;">
             <form id="formnewsession" action="/joinsession/" method="POST">
                 <input type="text" name="newSessionName" id="newSessionName" placeholder="Enter Session Name"/>
                 <input type="text" name="newCoderName" id="newCoderName" placeholder="Enter Your Username"/>
@@ -67,8 +67,9 @@
 
     <div id="inputcodebox" class="row">
         <div class="col-md-5">
-            <div class="myeditor" id="editor1">def foo(items):
-    x = "All this is syntax highlighted"
+            <div class="myeditor" id="editor1">def foo():
+    x = """Try joining a session!
+        Once you do, you can type code here."""
     return x</div>
             <form id="formsubmitcode" action="/executecode/submit" method="POST">
                 <input id="mycodebutton" type="submit" class="btn btn-default" value="Code" disabled />
@@ -76,15 +77,16 @@
         </div>
 
         <div class="col-md-5">
-            <div class="myeditor" id="editor2">def bar(items):
-    y = "This too!"
+            <div class="myeditor" id="editor2">def bar():
+    y = """If you have a partner using the same session
+        you can see their code here!"""
     return y</div>
             <form action="/">
                 <div class="btn btn-default" disabled> Current Partner: <span id="partnerName"></span> </div>
             </form>
         </div>
-        <div id="swapbox" class="col-md-2" style="border: 2px solid red;">
-            <p> Swap Code Box Here </p>
+        <div id="swapbox" class="col-md-2" style="border: 0px solid red;">
+            <p> List of Active Users: </p>
         </div>
     </div>
 </div>

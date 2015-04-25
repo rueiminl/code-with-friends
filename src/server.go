@@ -980,8 +980,11 @@ func main() {
 		}*/
 
 	ip := configuration.Servers[serverId].IP
-	http.ListenAndServeTLS(":"+configuration.Servers[serverId].HttpPort,
+	err = http.ListenAndServeTLS(":"+configuration.Servers[serverId].HttpPort,
 		os.Getenv("GOPATH")+"keys/"+ip+".cert",
 		os.Getenv("GOPATH")+"keys/"+ip+".key",
 		nil)
+	if err != nil {
+		fmt.Println(err)
+	}
 }
