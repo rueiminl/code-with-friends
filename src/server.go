@@ -829,14 +829,17 @@ func checkDead() {
 		} else {
 			// slave get the notification that the master has been dead
 			caster.RemoveMemLocal(configuration.Servers[masterId].Name)
-			fmt.Println("QualifiedToRaise")
+			fmt.Println("Are you QualifiedToRaise?")
 			if masterelection.QualifiedToRaise(serverId, masterId, mapElection, &masterId) {
 				fmt.Println("RaiseElection")
 				masterelection.RaiseElection(serverId, caster, mapElection)
 				electionChan := caster.GetEmChan()
+				fmt.Println("start loop")
 				for {
 					em := <-electionChan
+					fmt.Println(em.NewMasterId)
 					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
+						fmt.Println()
 						break
 					}
 				}

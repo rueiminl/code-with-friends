@@ -24,6 +24,7 @@ func QualifiedToRaise(id int, master int, m map[int]int, masterId *int) bool{
 			if len(m) == 1 {
 				*masterId = id
 				fmt.Println("You are now the only one remain in the server")
+				fmt.Println("masterID: " + strconv.Itoa(*masterId))
 				return false
 			}
 			for key, value := range m{
@@ -46,12 +47,18 @@ func RaiseElection(id int, caster multicaster.Multicaster, m map[int]int) {
 	msg.MasterSelectSet[id] = false
 	// TODO: pass message to the next element in the link
 	caster.SendElectionMessage(strconv.Itoa(m[id]), msg)
+	for key, value := range m {
+		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
+	}
+	fmt.Println("Message sent to: " + strconv.Itoa(m[id]))
+
 }
 
 /*
-
+Return true 
 */
 func ReadElectionMsg(id int, msg multicaster.ElectionMsg, caster multicaster.Multicaster, m map[int]int, masterId *int) bool{
+	fmt.Println("Read Message")
 	if value, ok := msg.MasterSelectSet[id]; ok {
 		if value == true {
 			fmt.Println("Election finished")
@@ -87,6 +94,9 @@ func UpdateLinkedMap(id int, m map[int]int){
 			delete(m, id)
 			break
 		}
+	}
+	for key, value := range m {
+		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
 	}
 }
 /*

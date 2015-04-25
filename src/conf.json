@@ -22,17 +22,13 @@
 			"port"      : "12347",
 			"httpport"  : "8082",
 			"heartbeat" : "10003",
-			"group"     : "B"
+			"group"     : "A"
 		}
 	],
 	"groups" : [
 		{
 			"name"    : "A",
-			"members" : ["alice", "bob"]
-		}
-		,{
-			"name"    : "B",
-			"members" : ["charlie"]
+			"members" : ["alice", "bob", "charlie"]
 		}
 	]
 }
