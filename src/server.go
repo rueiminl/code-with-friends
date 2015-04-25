@@ -843,6 +843,7 @@ func checkDead() {
 					fmt.Println(em.NewMasterId)
 					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
 						fmt.Println("Master settle, new master is: " + strconv.Itoa(masterId))
+						InitializeHeartbeat()
 						break
 					}
 			}
@@ -852,6 +853,29 @@ func checkDead() {
 	}
 }
 
+func InitializeHeartbeat() {
+	if serverId == masterId {
+		// master should monitor all slaves excluding itself
+		slaves := make([]string, len(configuration.Servers)-1)
+		i := 0
+		for id, server := range configuration.Servers {
+			if id == serverId {
+				continue
+			}
+			if configuration.Groups[groupId].Name == server.Group {
+				slaves[i] = server.IP + ":" + server.Heartbeat
+				i++
+			}
+		}
+		fmt.Println("slaves = ", slaves)
+		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, slaves, slaves)
+	} else {
+		master := []string{configuration.Servers[masterId].IP + ":" + configuration.Servers[masterId].Heartbeat}
+		fmt.Println("master = ", master)
+		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, master, master)
+	}
+}
+	
 func main() {
 	// server name should be the first argument
 	if len(os.Args) < 2 {
@@ -914,26 +938,7 @@ func main() {
 	mapElection[masterId] = first
 
 	// initialize heartbeat
-	if serverId == masterId {
-		// master should monitor all slaves excluding itself
-		slaves := make([]string, len(configuration.Servers)-1)
-		i := 0
-		for id, server := range configuration.Servers {
-			if id == serverId {
-				continue
-			}
-			if configuration.Groups[groupId].Name == server.Group {
-				slaves[i] = server.IP + ":" + server.Heartbeat
-				i++
-			}
-		}
-		fmt.Println("slaves = ", slaves)
-		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, slaves, slaves)
-	} else {
-		master := []string{configuration.Servers[masterId].IP + ":" + configuration.Servers[masterId].Heartbeat}
-		fmt.Println("master = ", master)
-		heartbeatManager.Initialize(configuration.Servers[serverId].IP+":"+configuration.Servers[serverId].Heartbeat, master, master)
-	}
+	InitializeHeartbeat()
 
 	// initialize multicast
 	caster.Initialize(configuration.Servers[serverId].IP,
