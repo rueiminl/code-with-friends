@@ -1,10 +1,11 @@
 package multicaster
 
 import (
-	"fmt"
-	"net"
-	"net/rpc"
-	"time"
+    "fmt"
+    "net"
+    "net/rpc"
+    "time"
+    "strconv"
 )
 
 type PasserRPC struct {
@@ -19,7 +20,8 @@ type Multicaster struct {
 	passer       PasserRPC
 	ackChans     map[string]chan string
 	messageChans map[string]chan MessageInfo
-	emChan       chan ElectionMsg
+	emChan chan ElectionMsg
+	eleMap map[int]int
 }
 
 /*to recieve a Message from another node
@@ -33,6 +35,8 @@ func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 	sName := message.Session
 	if message.Type == "dltMem" {
 		this.owner.RemoveMemLocal(message.MemToDlt)
+		i, _ := strconv.ParseInt(message.MemToDlt, 0, 32)
+		UpdateLinkedMap(int(i), this.owner.eleMap)
 		*reply = "ack"
 	} else if message.Type == "election" {
 		*reply = "ack"
@@ -88,6 +92,22 @@ func (this *Multicaster) portListenner(port string) {
 }
 
 /*
+If some node die, update the linked map list.
+*/
+func UpdateLinkedMap(id int, m map[int]int){
+	for key, value := range m {
+		if value == id {
+			m[key] = m[id]
+			delete(m, id)
+			break
+		}
+	}
+	for key, value := range m {
+		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
+	}	
+}
+
+/*
 * send out the message to a single node,
 * the return value is the reply from the dest node
  */
@@ -105,6 +125,10 @@ func (this *Multicaster) sendMessage(message Message) string {
 		fmt.Println(err)
 	}
 	return result
+}
+
+func (this *Multicaster) SetMapElection(eMap map[int]int){
+	this.eleMap = eMap
 }
 
 /*
