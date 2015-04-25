@@ -8,11 +8,9 @@ import (
 	"heartbeat"
 	"html/template"
 	"io"
-	"io/ioutil"
 	"log"
 	"masterselection"
 	"multicaster"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -240,7 +238,7 @@ func redirectToCorrectSession(sessionName string, w http.ResponseWriter, r *http
 		fmt.Println("Redirecting request to the appropriate group: ", desiredGroupId)
 		for _, s := range configuration.Servers {
 			if s.Group == desiredGroup.Name {
-				newURL := "http://" + s.IP + ":" + s.HttpPort // + r.URL.Path
+				newURL := "https://" + s.IP + ":" + s.HttpPort // + r.URL.Path
 				fmt.Println("\tRedirecting to ", newURL)
 				fmt.Fprintf(w, newURL)
 				return true
@@ -285,7 +283,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Send the request to the master.
 		s := configuration.Servers[masterId]
-		newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+		newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
 		fmt.Println("\tRedirecting to ", newURL)
 		http.Redirect(w, r, newURL, 307)
 	}
@@ -470,7 +468,7 @@ func readpartnercodeHandler(w http.ResponseWriter, r *http.Request) {
 		} else { // And we're a replica...
 			// Send the request to the master.
 			s := configuration.Servers[masterId]
-			newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+			newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
 			fmt.Println("\tRedirecting to ", newURL)
 			http.Redirect(w, r, newURL, 307)
 		}
@@ -641,9 +639,9 @@ func joinsessionHandler(w http.ResponseWriter, r *http.Request) {
 	} else if masterId != serverId {
 		// Send the request to the master.
 		s := configuration.Servers[masterId]
-		newURL := "http://" + s.IP + ":" + s.HttpPort + r.URL.Path
+		newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
 		fmt.Println("\tRedirecting to ", newURL)
-		http.Redirect(w, r, newURL, 307)
+		http.Redirect(w, r, newURL, http.StatusTemporaryRedirect)
 		return
 	}
 	// Failure case
@@ -933,7 +931,8 @@ func main() {
 	}
 
 	// initialize multicast
-	caster.Initialize(configuration.Servers[serverId].Port)
+	caster.Initialize(configuration.Servers[serverId].IP,
+		configuration.Servers[serverId].Port)
 	for i, server := range configuration.Servers {
 		if serverId == i {
 			continue
@@ -959,19 +958,24 @@ func main() {
 	http.HandleFunc("/joinsession/", makeHandler(joinsessionHandler))
 	http.HandleFunc("/resetsession/", makeHandler(resetsessionHandler))
 
-	if *addr {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = ioutil.WriteFile("final-port.txt", []byte(l.Addr().String()), 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-		s := &http.Server{}
-		s.Serve(l)
-		return
-	}
+	/*
+		if *addr {
+			l, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				log.Fatal(err)
+			}
+			err = ioutil.WriteFile("final-port.txt", []byte(l.Addr().String()), 0644)
+			if err != nil {
+				log.Fatal(err)
+			}
+			s := &http.Server{}
+			s.Serve(l)
+			return
+		}*/
 
-	http.ListenAndServe(":"+configuration.Servers[serverId].HttpPort, nil)
+	ip := configuration.Servers[serverId].IP
+	http.ListenAndServeTLS(":"+configuration.Servers[serverId].HttpPort,
+		os.Getenv("GOPATH")+"keys/"+ip+".cert",
+		os.Getenv("GOPATH")+"keys/"+ip+".key",
+		nil)
 }

@@ -1,10 +1,12 @@
 package multicaster
 
 import (
-	"fmt"
-	"net"
-	"net/rpc"
-	"time"
+    "fmt"
+    "net"
+    "net/rpc"
+    "time"
+    "masterelection"
+    "strconv"
 )
 
 type PasserRPC struct {
@@ -19,7 +21,8 @@ type Multicaster struct {
 	passer       PasserRPC
 	ackChans     map[string]chan string
 	messageChans map[string]chan MessageInfo
-	emChan       chan ElectionMsg
+	emChan chan ElectionMsg
+	eleMap *map[int]int
 }
 
 /*to recieve a Message from another node
@@ -33,6 +36,8 @@ func (this *PasserRPC) ReceiveMessage(message Message, reply *string) error {
 	sName := message.Session
 	if message.Type == "dltMem" {
 		this.owner.RemoveMemLocal(message.MemToDlt)
+		i, _ := strconv.ParseInt(message.MemToDlt, 0, 64)
+		masterelection.UpdateLinkedMap(i, this.owner.eleMap)
 		*reply = "ack"
 	} else if message.Type == "election" {
 		*reply = "ack"
@@ -107,19 +112,22 @@ func (this *Multicaster) sendMessage(message Message) string {
 	return result
 }
 
+func (this *Multicaster) SetMapElection(eMap *map[int]int){
+	this.eleMap = eMap
+}
+
 /*
 * this function should be called before multicaster being used
  */
-func (this *Multicaster) Initialize(newPort string) {
+func (this *Multicaster) Initialize(ip, newPort string) {
 	this.members = make(map[string]string)
 	this.port = newPort
-	//this.members["#"] = "127.0.0.1:" + newPort
 	this.passer.ackChans = make(map[string]chan string)
 	this.ackChans = make(map[string]chan string)
 	this.messageChans = make(map[string]chan MessageInfo)
 	this.emChan = make(chan ElectionMsg, 1024)
 	this.members = make(map[string]string)
-	this.members["#"] = "127.0.0.1:" + this.port
+	this.members["#"] = ip + ":" + newPort
 	this.AddSession("#delete")
 	go this.portListenner(":" + this.port)
 }
