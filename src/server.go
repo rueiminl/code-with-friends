@@ -822,7 +822,7 @@ func checkDead() {
 			}
 			caster.RemoveMemInGroup(configuration.Servers[deadId].Name)
 			fmt.Println("UpdateLinkedMap")
-			masterelection.UpdateLinkedMap(deadId, mapElection)
+			multicaster.UpdateLinkedMap(deadId, mapElection)
 			// TODO notify slaves to UpdateLinkedMap
 		} else {
 			// slave get the notification that the master has been dead
@@ -832,7 +832,8 @@ func checkDead() {
 				fmt.Println("RaiseElection")
 				masterelection.RaiseElection(serverId, caster, mapElection)
 				electionChan := caster.GetEmChan()
-				fmt.Println("start loop")
+				fmt.Println("s
+					tart loop")
 				for {
 					em := <-electionChan
 					fmt.Println(em.NewMasterId)
@@ -842,7 +843,7 @@ func checkDead() {
 					}
 				}
 			}
-			masterelection.UpdateLinkedMap(masterId, mapElection)
+			multicasters.UpdateLinkedMap(masterId, mapElection)
 		}
 	}
 }
