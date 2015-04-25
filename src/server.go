@@ -779,7 +779,7 @@ func receiveMulticast(sessionName string) {
 		sessionName := mi.SessionName
 		session := sessionMap[sessionName]
 		if session == nil {
-			// This shouls never happen -- createServer must be called
+			// This should never happen -- createServer must be called
 			// before receiveMulticast.
 			panic("Session must be created before receiving multicast")
 		}
@@ -788,7 +788,12 @@ func receiveMulticast(sessionName string) {
 		typedCode := mi.TypedCode
 		if typedCode != "" && userName != "" {
 			// This message is from the master, updating us about this user's code.
-			session.userMap[userName].userCode = typedCode
+			user := session.userMap[userName]
+			if user != nil {
+				session.userMap[userName].userCode = typedCode
+			} else {
+				fmt.Println("Information send regarding user that does not exist: ", userName)
+			}
 		} else if codeToExecute != "" {
 			// This message is from the master, telling us to execute code.
 			sendExecuteRequestToSessionMaster(session, codeToExecute)
