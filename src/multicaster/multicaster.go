@@ -102,6 +102,7 @@ func UpdateLinkedMap(id int, m map[int]int){
 			break
 		}
 	}
+	fmt.Println("UpdateLinkedMap")
 	for key, value := range m {
 		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
 	}	
@@ -193,7 +194,16 @@ func (this *Multicaster) RemoveMemLocal(memID string) {
 
 func (this *Multicaster) RemoveMemInGroup(memID string) bool {
 	ret := true
+	fmt.Println("memID " + memID)
+	fmt.Println("before remove")
+	for key, value := range this.members {
+		fmt.Println("key: " + key + ", value: " + value)
+	}
 	this.RemoveMemLocal(memID)
+	fmt.Println("after remove")
+	for key, value := range this.members {
+		fmt.Println("key: " + key + ", value: " + value)
+	}
 	message := Message{this.members["#"], "", memID, MessageInfo{}, ElectionMsg{}, "dltMem", "#delete"}
 	for key := range this.members {
 		//skip on sending message to itself
