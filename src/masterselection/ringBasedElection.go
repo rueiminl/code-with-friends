@@ -50,7 +50,7 @@ func RaiseElection(id int, caster multicaster.Multicaster, m map[int]int) {
 	for key, value := range m {
 		fmt.Println("key: " + strconv.Itoa(key) + ", value: " + strconv.Itoa(value))
 	}
-	fmt.Println("Message sent to: " + strconv.Itoa(m[id]))
+	//fmt.Println("Message sent to: " + strconv.Itoa(m[id]))
 
 }
 
@@ -75,6 +75,7 @@ func ReadElectionMsg(id int, msg multicaster.ElectionMsg, caster multicaster.Mul
 			}
 			*masterId = msg.NewMasterId
 			caster.SendElectionMessage(strconv.Itoa(m[id]), msg)
+			return true
 		}
 	} else{
 		// First round election

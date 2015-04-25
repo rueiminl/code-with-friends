@@ -153,6 +153,7 @@ func (this *Multicaster) Initialize(ip, newPort string) {
 * value is it's ip:port
  */
 func (this *Multicaster) AddMember(memID, value string) {
+	fmt.Println("mem: " + memID + "value: " + value + "added")
 	this.members[memID] = value
 }
 
@@ -176,7 +177,17 @@ func (this *Multicaster) GetEmChan() chan ElectionMsg {
 }
 
 func (this *Multicaster) RemoveMemLocal(memID string) {
+	//fmt.Println("Before this.members[memID]: " + this.members[memID])
+	fmt.Println("before: ")
+	for key, value := range this.members {
+		fmt.Println("key: " + key + ", value: " + value)
+	}
 	delete(this.members, memID)
+	fmt.Println("after: ")
+	for key, value := range this.members {
+		fmt.Println("key: " + key + ", value: " + value)
+	}
+	//fmt.Println("After this.members[memID]: " + this.members[memID])
 	//this.Multicast()
 }
 
@@ -234,4 +245,7 @@ func (this *Multicaster) mltcast(message Message, timeout int) bool {
 func (this *Multicaster) SendElectionMessage(memID string, em ElectionMsg) {
 	message := Message{this.members["#"], this.members[memID], "", MessageInfo{}, em, "election", ""}
 	this.sendMessage(message)
+	fmt.Println("this.members[memID]: " + this.members[memID])
+	fmt.Println("Message destination: " + message.Dest)
+	fmt.Println("Message sent to: " + memID)
 }

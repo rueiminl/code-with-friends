@@ -749,6 +749,7 @@ func showConfiguration() {
 
 // Function from which REPLICAS create a session.
 func receiveMulticastSessionInitializer() {
+	fmt.Println("receiveMulticastSessionInitializer")
 	ch := caster.GetMessageChan("SESSION_CREATOR")
 	for {
 		mi := <-ch
@@ -813,6 +814,7 @@ func checkDead() {
 		fmt.Println(dead)
 		deadId := -1
 		if serverId == masterId {
+			fmt.Println("slave die")
 			// master get a notification that a slave has been dead
 			for i, server := range configuration.Servers {
 				if dead == server.IP+":"+server.Heartbeat {
@@ -820,30 +822,32 @@ func checkDead() {
 					break
 				}
 			}
-			caster.RemoveMemInGroup(configuration.Servers[deadId].Name)
+			caster.RemoveMemInGroup(strconv.Itoa(masterId))
 			fmt.Println("UpdateLinkedMap")
 			multicaster.UpdateLinkedMap(deadId, mapElection)
 			// TODO notify slaves to UpdateLinkedMap
 		} else {
 			// slave get the notification that the master has been dead
-			caster.RemoveMemLocal(configuration.Servers[masterId].Name)
+			fmt.Println("master die")
+			oldMaster := masterId
+			caster.RemoveMemLocal(strconv.Itoa(masterId))
 			fmt.Println("Are you QualifiedToRaise?")
 			if masterelection.QualifiedToRaise(serverId, masterId, mapElection, &masterId) {
 				fmt.Println("RaiseElection")
 				masterelection.RaiseElection(serverId, caster, mapElection)
-				electionChan := caster.GetEmChan()
-				fmt.Println("s
-					tart loop")
-				for {
+			}
+			electionChan := caster.GetEmChan()
+			fmt.Println("start loop")
+			for {
 					em := <-electionChan
 					fmt.Println(em.NewMasterId)
 					if masterelection.ReadElectionMsg(serverId, em, caster, mapElection, &masterId) {
-						fmt.Println()
+						fmt.Println("Master settle, new master is: " + strconv.Itoa(masterId))
 						break
 					}
-				}
 			}
-			multicaster.UpdateLinkedMap(masterId, mapElection)
+			fmt.Println("oldMaster: " + strconv.Itoa(oldMaster))
+			multicaster.UpdateLinkedMap(oldMaster, mapElection)
 		}
 	}
 }
@@ -939,13 +943,14 @@ func main() {
 			continue
 		}
 		if configuration.Groups[groupId].Name == server.Group {
-			caster.AddMember(server.Name, server.IP+":"+server.Port)
+			caster.AddMember(strconv.Itoa(i), server.IP+":"+server.Port)
 		}
 	}
 	caster.AddSession("SESSION_CREATOR")
 	go receiveMulticastSessionInitializer()
 	// debug only
 	showConfiguration()
+
 	go checkDead()
 
 	flag.Parse()
