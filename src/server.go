@@ -822,8 +822,8 @@ func checkDead() {
 					break
 				}
 			}
-			caster.RemoveMemInGroup(strconv.Itoa(masterId))
-			fmt.Println("UpdateLinkedMap")
+			caster.RemoveMemInGroup(strconv.Itoa(deadId))
+			//fmt.Println("UpdateLinkedMap")
 			multicaster.UpdateLinkedMap(deadId, mapElection)
 			// TODO notify slaves to UpdateLinkedMap
 		} else {
@@ -963,7 +963,7 @@ func main() {
 	go receiveMulticastSessionInitializer()
 	// debug only
 	showConfiguration()
-
+	caster.SetMapElection(mapElection)
 	go checkDead()
 
 	flag.Parse()
