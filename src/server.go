@@ -154,7 +154,7 @@ func sessionMaster(s *PythonSession) {
 			if !ok {
 				fmt.Println("Closed chSetUsername")
 			} else {
-				fmt.Println("[SMASTER] New user in session: ", uname)
+				//fmt.Println("[SMASTER] New user in session: ", uname)
 				s.userMap[uname] = &userInfo{}
 				ukey := <-s.chSetUserkey
 				s.userMap[uname].userKey = ukey
@@ -164,12 +164,12 @@ func sessionMaster(s *PythonSession) {
 			if !ok {
 				fmt.Println("Closed chRequestUsername")
 			} else {
-				fmt.Println("[SMASTER] Requesting username: ", uname)
+				//fmt.Println("[SMASTER] Requesting username: ", uname)
 				if _, ok := s.userMap[uname]; ok {
-					fmt.Println("exists")
+					//fmt.Println("exists")
 					s.chUsernameExists <- true
 				} else {
-					fmt.Println("doesn't exist")
+					//fmt.Println("doesn't exist")
 					s.chUsernameExists <- false
 				}
 			}
@@ -181,7 +181,7 @@ func sessionMaster(s *PythonSession) {
 				// TODO Add a buffered channel
 				// TODO: Can this be done asynchronously?
 				// Right now, Master will be blocked on code which takes a while to execute.
-				fmt.Println("[SMASTER] Executing code")
+				//fmt.Println("[SMASTER] Executing code")
 				writeToSession(inp, s)
 				s.ioMap[s.ioNumber] = "INP:" + inp
 				s.ioNumber++
@@ -190,7 +190,7 @@ func sessionMaster(s *PythonSession) {
 			if !ok {
 				fmt.Println("Closed chRequestIoNumber")
 			} else {
-				fmt.Println("[SMASTER] Responding to IO request")
+				//fmt.Println("[SMASTER] Responding to IO request")
 				ioInfo := new(ioNumberResponse)
 				ioInfo.currentIoNumber = s.ioNumber
 				if ioInfo.currentIoNumber > request {
@@ -202,7 +202,7 @@ func sessionMaster(s *PythonSession) {
 			if !ok {
 				fmt.Println("Closed chIoMapWriteRequest")
 			} else {
-				fmt.Println("[SMASTER] Responding to IO WRITE request")
+				//fmt.Println("[SMASTER] Responding to IO WRITE request")
 				if request.stdout {
 					s.ioMap[s.ioNumber] = "OUT:" + request.output
 				} else { // stderr
@@ -217,7 +217,7 @@ func sessionMaster(s *PythonSession) {
 
 func makeHandler(fn func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Request incoming for: " + r.URL.Path)
+		//fmt.Println("Request incoming for: " + r.URL.Path)
 		m := validPath.FindStringSubmatch(r.URL.Path)
 		if m == nil && r.URL.Path != "/" {
 			fmt.Println("Not found.")
@@ -241,11 +241,11 @@ func redirectToCorrectSession(sessionName string, w http.ResponseWriter, r *http
 
 	if desiredGroupId != groupId {
 		// Redirect session request to the appropriate server.
-		fmt.Println("Redirecting request to the appropriate group: ", desiredGroupId)
+		//fmt.Println("Redirecting request to the appropriate group: ", desiredGroupId)
 		for _, s := range configuration.Servers {
 			if s.Group == desiredGroup.Name {
 				newURL := "https://" + s.IP + ":" + s.HttpPort // + r.URL.Path
-				fmt.Println("\tRedirecting to ", newURL)
+				//fmt.Println("\tRedirecting to ", newURL)
 				fmt.Fprintf(w, newURL)
 				return true
 			}
@@ -260,10 +260,10 @@ func redirectToCorrectSession(sessionName string, w http.ResponseWriter, r *http
 func sendExecuteRequestToSessionMaster(session *PythonSession, codeToExecute string) {
 	_, ok := <-session.chMasterReady
 	if ok {
-		fmt.Println("writing to active session.")
+		//fmt.Println("writing to active session.")
 		session.chExecuteCode <- codeToExecute // Must request that master handle session.
 	} else {
-		fmt.Println("No session active.")
+		//fmt.Println("No session active.")
 	}
 }
 
@@ -276,7 +276,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 		codeToExecute += "\n" // Double termination (possibly) required for multiline commands.
 	}
 
-	fmt.Println("Trying to execute: ", codeToExecute)
+	//fmt.Println("Trying to execute: ", codeToExecute)
 
 	session := sessionMap[sessionName]
 	if session == nil {
@@ -290,7 +290,7 @@ func executecodeHandler(w http.ResponseWriter, r *http.Request) {
 		// Send the request to the master.
 		s := configuration.Servers[masterId]
 		newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
-		fmt.Println("\tRedirecting to ", newURL)
+		//fmt.Println("\tRedirecting to ", newURL)
 		http.Redirect(w, r, newURL, 307)
 	}
 }
@@ -300,18 +300,18 @@ func multicastStartSession(sessionName string) bool {
 	session := sessionMap[sessionName]
 	if session != nil {
 		// Master: The session already exists -- we multicasted it earlier.
-		fmt.Println("(master): session already exists")
+		//fmt.Println("(master): session already exists")
 		return true
 	}
 	mi := multicaster.MessageInfo{}
 	mi.SessionName = "SESSION_CREATOR"
 	mi.CodeToExecute = sessionName
 	mi.MasterId = serverId
-	fmt.Println("(master) : about to multicast StartSession: ", sessionName)
+	//fmt.Println("(master) : about to multicast StartSession: ", sessionName)
 	// The session is nil -- no need to lock.
 	if caster.Multicast("SESSION_CREATOR", mi, 5) {
-		fmt.Println("(master) : multicast succeeded.")
-		fmt.Println("(master) : creating new sesion: ", sessionName)
+		//fmt.Println("(master) : multicast succeeded.")
+		//fmt.Println("(master) : creating new sesion: ", sessionName)
 		session := sessionMap[sessionName]
 		if session == nil {
 			// Master: Create session if we multicasted successfully
@@ -321,7 +321,7 @@ func multicastStartSession(sessionName string) bool {
 			panic("The session was nil, but after multicasting, we made it?")
 		}
 	} else {
-		fmt.Println("(master) : multicast StartSession FAILED")
+		//fmt.Println("(master) : multicast StartSession FAILED")
 	}
 	return false
 }
@@ -339,7 +339,7 @@ func multicastTypedCode(s *PythonSession, code, user, sessionName string) {
 	s.multicastMutex.Lock()
 	defer s.multicastMutex.Unlock()
 	if caster.Multicast(sessionName, mi, 5) {
-		fmt.Println("Multicast typed code to session SUCCESS")
+		//fmt.Println("Multicast typed code to session SUCCESS")
 		s.userMap[user].userCode = code
 	} else {
 		fmt.Println("Multicast typed code to session FAILURE")
@@ -358,7 +358,7 @@ func multicastExecuteCode(s *PythonSession, code, sessionName string) {
 	s.multicastMutex.Lock()
 	defer s.multicastMutex.Unlock()
 	if caster.Multicast(sessionName, mi, 5) {
-		fmt.Println("Multicast code to session SUCCESS")
+		//fmt.Println("Multicast code to session SUCCESS")
 		// The master can only apply the request locally if
 		// all servers have applied it as well.
 		sendExecuteRequestToSessionMaster(s, code)
@@ -381,7 +381,7 @@ func multicastUser(s *PythonSession, user, userKey, sessionName string) bool {
 	s.multicastMutex.Lock()
 	defer s.multicastMutex.Unlock()
 	if caster.Multicast(sessionName, mi, 5) {
-		fmt.Println("Multicast username to session SUCCESS")
+		//fmt.Println("Multicast username to session SUCCESS")
 		// The master can only add the user if all other servers
 		// have added the user as well.
 		return addUserToSession(s, user, userKey)
@@ -411,10 +411,10 @@ func readexecutedcodeHandler(w http.ResponseWriter, r *http.Request) {
 		ioInfo := <-session.chResponseIoNumber
 
 		if ioInfo.currentIoNumber > requestedIoNumber { // Client is catching up...
-			fmt.Println("Result: " + ioInfo.requestedIo)
+			//fmt.Println("Result: " + ioInfo.requestedIo)
 			fmt.Fprintf(w, ioInfo.requestedIo)
 		} else if ioInfo.currentIoNumber < requestedIoNumber { // Client is ahead?
-			fmt.Println("Client is ahead?")
+			//fmt.Println("Client is ahead?")
 			fmt.Fprintf(w, "ZERO")
 		} else { // Client should wait.
 			fmt.Fprintf(w, "")
@@ -475,7 +475,7 @@ func readpartnercodeHandler(w http.ResponseWriter, r *http.Request) {
 			// Send the request to the master.
 			s := configuration.Servers[masterId]
 			newURL := "https://" + s.IP + ":" + s.HttpPort + r.URL.Path
-			fmt.Println("\tRedirecting to ", newURL)
+			//fmt.Println("\tRedirecting to ", newURL)
 			http.Redirect(w, r, newURL, 307)
 		}
 	}
