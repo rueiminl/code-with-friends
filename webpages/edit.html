@@ -184,7 +184,7 @@
                     console.log("[poll for active sesion] got data: " + data);
                     mycodebutton = document.getElementById("mycodebutton");
                     newsessionbutton = document.getElementById("newsessionbutton");
-					$("#sessionStatus").text(data)
+					$("#sessionStatus").text(data);
                     if (data == "ACTIVE") {
                         mycodebutton.disabled = false;
                         pollForActiveSessionDelay = 2500;
@@ -195,8 +195,8 @@
                     pollForActiveSession();
                 },
                 error: function(XMLHttpRequest, textStatus, errorThrown) {
-                    alert("The session looks like it has died. Try connecting to a different server");
-                    clearTimeout(t);
+					$("#sessionStatus").text("LOST CONNECTION");
+                    pollForActiveSession();
                 },
                 timeout: 1000
             })
